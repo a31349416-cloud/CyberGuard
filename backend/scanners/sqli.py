@@ -70,7 +70,10 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
 
     try:
         resp = session.get(url, timeout=timeout, verify=True)
-        soup = BeautifulSoup(resp.text, "lxml")
+        try:
+            soup = BeautifulSoup(resp.text, "lxml")
+        except Exception:
+            soup = BeautifulSoup(resp.text, "html.parser")
         forms = soup.find_all("form")
         parsed = urlparse(url)
         query_params = parse_qs(parsed.query)
