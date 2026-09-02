@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Результати — CyberGuard</title>
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">🛡️ Cyber<span>Guard</span></div>
+  <div class="nav-links">
+    <a href="index.html">Сканування</a>
+    <a href="history.html">Історія</a>
+  </div>
+</nav>
+
+<div id="loading" class="dashboard" style="text-align:center; padding:60px 20px;">
+  <div class="spinner" style="width:32px;height:32px;border-width:3px;"></div>
+  <p style="margin-top:14px; color:var(--muted);">Завантажуємо результати...</p>
+</div>
+
+<div id="dashboard" class="dashboard" style="display:none;">
+  <!-- Risk Hero -->
+  <div class="risk-hero">
+    <div id="riskCircle" class="risk-circle">
+      <div id="riskScore" class="score">--</div>
+      <div id="riskLevel" class="label">--</div>
+    </div>
+    <div id="riskMeta" class="risk-meta"></div>
+    <div style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+      <button class="btn-primary" onclick="downloadPDF()">📄 Завантажити PDF</button>
+      <button class="btn-secondary" onclick="location.href='index.html'">🔄 Сканувати знову</button>
+    </div>
+  </div>
+
+  <div class="dashboard-grid">
+    <div class="card">
+      <h3>📊 Розподіл за severity</h3>
+      <canvas id="chartCanvas" height="220"></canvas>
+    </div>
+    <div class="card">
+      <h3>🔎 Деталі сканерів</h3>
+      <div id="scannersInfo" style="font-size:0.88rem; color:var(--muted); line-height:1.8;"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>🐛 Вразливості (<span id="findingsCount">0</span>)</h3>
+    <div id="findingsList" class="findings-list"></div>
+  </div>
+</div>
+
+<div id="errorBox" class="dashboard" style="display:none; text-align:center; padding:40px 20px;">
+  <p style="font-size:1.1rem; margin-bottom:10px;">😕 Не вдалося завантажити результат</p>
+  <p id="errorText" style="color:var(--muted);"></p>
+  <button class="btn-secondary" style="margin-top:16px;" onclick="location.href='index.html'">На головну</button>
+</div>
+
+<footer class="footer">CyberGuard • OWASP TOP-10 • <a href="index.html">Нове сканування</a></footer>
+
+<script>
+const API = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
+const params = new URLSearchParams(location.search);
+const scanId = params.get('id');
+
+if(!scanId){
+  document.getElementById('loading').style.display='none';
+  document.getElementById('errorBox').style.display='block';
+  document.getElementById('errorText').textContent = 'Немає scan_id в URL. Повернись на головну та запусти сканування.';
+} else {
+  loadResult();
+}
+
+async function loadResult(){
+  try{
+    const r = await fetch(`${API}/api/result/${scanId}`);
+    if(!r.ok) throw new Error(await r.text());
+    const data = await r.json();
+
+    if(data.status === 'running' || data.status === 'pending'){
+      document.getElementById('loading').innerHTML = `
+        <div class="progress-bar" style="max-width:420px; margin:0 auto;"><div class="progress-fill" style="width:${data.progress||30}%"></div></div>
+        <p style="margin-top:14px; color:var(--muted);"><span class="spinner"></span> ${data.message||'Сканування...'} (${data.progress||0}%)</p>
+        <p style="margin-top:8px; font-size:0.82rem; color:var(--muted);">Сканери працюють паралельно — зачекай 8-15 сек</p>
+      `;
+      setTimeout(loadResult, 1200);
+      return;
+    }
+    if(data.status === 'failed'){
+      throw new Error(data.message || 'Scan failed');
+    }
+    renderDashboard(data);
+  }catch(e){
+    document.getElementById('loading').style.display='none';
+    document.getElementById('errorBox').style.display='block';
+    document.getElementById('errorText').textContent = e.message;
+  }
+}
+
+function renderDashboard(data){
+  document.getElementById('loading').style.display='none';
+  document.getElementById('dashboard').style.display='block';
+
+  const score = data.risk_score ?? 0;
+  const level = data.level || 'LOW';
+  const findings = data.findings || [];
+  const scanners = data.scanners || [];
+
+  // Risk circle
+  const circle = document.getElementById('riskCircle');
+  circle.className = 'risk-circle ' + level.toLowerCase();
+  document.getElementById('riskScore').textContent = score;
+  document.getElementById('riskLevel').textContent = level;
+  const levelEmoji = level==='HIGH' ? '🔴' : level==='MEDIUM' ? '🟡' : '🟢';
+  document.getElementById('riskMeta').innerHTML = `${levelEmoji} <b>${data.url}</b> • ${findings.length} вразливостей • ${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+'s' : ''} • <span style="font-size:0.8rem;">ID: ${data.scan_id}</span>`;
+
+  document.getElementById('findingsCount').textContent = findings.length;
+
+  // Chart
+  const counts = { LOW:0, MEDIUM:0, HIGH:0, CRITICAL:0 };
+  findings.forEach(f=>{ const s=(f.severity||'LOW').toUpperCase(); counts[s]=(counts[s]||0)+1; });
+  const ctx = document.getElementById('chartCanvas').getContext('2d');
+  new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: ['HIGH','MEDIUM','LOW','CRITICAL'],
+      datasets: [{ data: [counts.HIGH, counts.MEDIUM, counts.LOW, counts.CRITICAL], backgroundColor: ['#ef4444','#eab308','#22c55e','#991b1b'], borderWidth:0 }]
+    },
+    options: { plugins:{ legend:{ position:'bottom', labels:{ color:'#94a3b8', padding:14, font:{size:12} } } }, cutout:'62%' }
+  });
+
+  // Scanners info
+  document.getElementById('scannersInfo').innerHTML = scanners.map(s=>`
+    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #334155; padding:6px 0;">
+      <span><b>${s.scanner}</b> — ${s.findings?.length||0} findings</span>
+      <span style="color:var(--muted);">${s.duration_ms||0} ms ${s.error ? '⚠️' : '✓'}</span>
+    </div>
+  `).join('') || '<span style="color:var(--muted)">Немає даних</span>';
+
+  // Findings list
+  const list = document.getElementById('findingsList');
+  if(findings.length===0){
+    list.innerHTML = `<div style="text-align:center; padding:28px; color:var(--green);">✅ Вразливостей не знайдено! Відмінна робота 🎉</div>`;
+  } else {
+    list.innerHTML = findings.map((f,i)=>`
+      <div class="finding-card ${f.severity}">
+        <div class="finding-head">
+          <strong>${i+1}. ${escapeHtml(f.type)}</strong>
+          <span>
+            <span class="badge ${f.severity}">${f.severity}</span>
+            <span style="margin-left:6px; font-size:0.8rem; font-weight:700; color:var(--muted);">+${f.score}</span>
+          </span>
+        </div>
+        <div class="finding-desc">${escapeHtml(f.description||'')}</div>
+        <div class="fix-box"><b>🛠️ Як виправити:</b> ${escapeHtml(f.fix||'')}</div>
+        ${f.owasp_category ? `<div class="owasp">OWASP: ${escapeHtml(f.owasp_category)}</div>` : ''}
+        ${f.evidence ? `<div class="owasp" style="word-break:break-all;">Evidence: <code>${escapeHtml(String(f.evidence).slice(0,180))}</code></div>` : ''}
+      </div>
+    `).join('');
+  }
+}
+
+function downloadPDF(){
+  window.open(`${API}/api/report/${scanId}`, '_blank');
+}
+function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+</script>
+</body>
+</html>

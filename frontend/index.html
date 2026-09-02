@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CyberGuard — OWASP TOP-10 Аудит Безпеки</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🛡️</text></svg>">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">🛡️ Cyber<span>Guard</span></div>
+  <div class="nav-links">
+    <a href="index.html" class="active">Сканування</a>
+    <a href="history.html">Історія</a>
+    <a href="https://github.com/a31349416-cloud/CyberGuard" target="_blank">GitHub</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <h1>Перевір свій сайт<br><span>за OWASP TOP-10</span></h1>
+  <p>Паралельні 5 сканерів • Оцінка ризику 0-100 • PDF звіт з інструкціями як виправити</p>
+
+  <div class="scan-box">
+    <input id="urlInput" type="text" placeholder="https://testphp.vulnweb.com" autocomplete="off" spellcheck="false">
+    <button id="scanBtn" class="btn-primary" onclick="startScan()">🔍 Сканувати</button>
+  </div>
+  <div class="hint">Приклад: <a href="#" onclick="setExample('https://testphp.vulnweb.com');return false;">testphp.vulnweb.com</a> • <a href="#" onclick="setExample('https://example.com');return false;">example.com</a> • Не скануй чужі сайти без дозволу!</div>
+
+  <div id="progressWrap" class="progress-wrap">
+    <div class="progress-bar"><div id="progressFill" class="progress-fill"></div></div>
+    <div id="progressText" class="progress-text"><span class="spinner"></span> Запускаємо сканери...</div>
+  </div>
+
+  <div id="errorBox" style="display:none; margin-top:16px; padding:12px; background:rgba(239,68,68,0.1); border:1px solid rgba(239,68,68,0.3); border-radius:10px; color:#fca5a5; font-size:0.9rem;"></div>
+</section>
+
+<section class="features">
+  <div class="feature-card">
+    <div class="icon">⚡</div>
+    <h3>Швидко</h3>
+    <p>5 сканерів паралельно через <code>asyncio.gather</code> — 8-15 сек замість 60</p>
+  </div>
+  <div class="feature-card">
+    <div class="icon">🔒</div>
+    <h3>Безпечно</h3>
+    <p>Перевірка заголовків, SSL, портів, XSS та SQLi за OWASP TOP-10</p>
+  </div>
+  <div class="feature-card">
+    <div class="icon">📄</div>
+    <h3>Звіт PDF</h3>
+    <p>Детальний звіт з шкалою ризику та покроковими інструкціями виправлення</p>
+  </div>
+</section>
+
+<div class="disclaimer">
+  ⚠️ <b>Ethical Use:</b> Використовуй CyberGuard лише на сайтах, на які маєш дозвіл. Сканування чужих ресурсів без згоди може порушувати закон.
+</div>
+
+<footer class="footer">
+  CyberGuard v1.0 • OWASP TOP-10 • Для навчання та аудиту власних сайтів • <a href="history.html">Історія сканувань</a>
+</footer>
+
+<script src="app.js"></script>
+<script>
+function setExample(url){ document.getElementById('urlInput').value = url; }
+document.getElementById('urlInput').addEventListener('keydown', e => { if(e.key==='Enter') startScan(); });
+</script>
+</body>
+</html>

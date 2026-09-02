@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Історія — CyberGuard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <div class="logo">🛡️ Cyber<span>Guard</span></div>
+  <div class="nav-links">
+    <a href="index.html">Сканування</a>
+    <a href="history.html" class="active">Історія</a>
+  </div>
+</nav>
+
+<div class="dashboard">
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; flex-wrap:wrap; gap:12px;">
+    <h2 style="font-size:1.35rem;">📜 Історія сканувань</h2>
+    <button class="btn-secondary" onclick="loadHistory()">🔄 Оновити</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Дата</th>
+            <th>URL</th>
+            <th>Бал</th>
+            <th>Рівень</th>
+            <th>Знайдено</th>
+            <th>Статус</th>
+            <th>Дії</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="7" style="text-align:center; padding:30px; color:var(--muted);"><span class="spinner"></span> Завантаження...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="emptyBox" style="display:none; text-align:center; padding:30px; color:var(--muted);">
+    Поки немає сканувань. <a href="index.html">Запусти перше!</a>
+  </div>
+</div>
+
+<footer class="footer">CyberGuard • <a href="index.html">Нове сканування</a></footer>
+
+<script>
+const API = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
+
+async function loadHistory(){
+  const tbody = document.getElementById('historyBody');
+  tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:30px; color:var(--muted);"><span class="spinner"></span> Завантаження...</td></tr>`;
+  try{
+    const r = await fetch(`${API}/api/history?limit=50`);
+    const data = await r.json();
+    const items = data.history || [];
+
+    if(items.length===0){
+      tbody.innerHTML = '';
+      document.getElementById('emptyBox').style.display='block';
+      return;
+    }
+    document.getElementById('emptyBox').style.display='none';
+    tbody.innerHTML = items.map(it=>{
+      const level = it.level || 'LOW';
+      const color = level==='HIGH'?'HIGH':level==='MEDIUM'?'MEDIUM':'LOW';
+      const scoreColor = level==='HIGH'?'#ef4444':level==='MEDIUM'?'#eab308':'#22c55e';
+      const date = (it.created_at||'').slice(0,19).replace('T',' ');
+      return `<tr>
+        <td style="font-size:0.82rem; color:var(--muted); white-space:nowrap;">${date}</td>
+        <td style="max-width:260px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"><a href="#" onclick="goResult('${it.scan_id}');return false;">${escapeHtml(it.url)}</a></td>
+        <td><b style="color:${scoreColor}">${it.risk_score}</b><span style="color:var(--muted)">/100</span></td>
+        <td><span class="level-dot ${color}"></span>${level}</td>
+        <td>${it.findings_count}</td>
+        <td><span style="font-size:0.78rem; padding:3px 8px; border-radius:999px; background:rgba(56,189,248,0.1); border:1px solid rgba(56,189,248,0.2);">${it.status}</span></td>
+        <td style="white-space:nowrap;">
+          <a href="#" onclick="goResult('${it.scan_id}');return false;" style="font-size:0.82rem;">Відкрити</a>
+          <span style="color:var(--border)"> | </span>
+          <a href="#" onclick="delScan('${it.scan_id}');return false;" style="font-size:0.82rem; color:var(--red);">Видалити</a>
+        </td>
+      </tr>`;
+    }).join('');
+  }catch(e){
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; padding:20px; color:#fca5a5;">Помилка: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+function goResult(id){ location.href = `dashboard.html?id=${id}`; }
+
+async function delScan(id){
+  if(!confirm('Видалити сканування '+id+'?')) return;
+  await fetch(`${API}/api/history/${id}`, { method:'DELETE' });
+  loadHistory();
+}
+
+function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+loadHistory();
+</script>
+</body>
+</html>
