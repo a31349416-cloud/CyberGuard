@@ -15,12 +15,13 @@
     <a href="index.html" class="active">Сканування</a>
     <a href="history.html">Історія</a>
     <a href="https://github.com/a31349416-cloud/CyberGuard" target="_blank">GitHub</a>
+    <a href="#" onclick="toggleTheme();return false;" title="Тема">🌓</a>
   </div>
 </nav>
 
 <section class="hero">
   <h1>Перевір свій сайт<br><span>за OWASP TOP-10</span></h1>
-  <p>Паралельні 5 сканерів • Оцінка ризику 0-100 • PDF звіт з інструкціями як виправити</p>
+  <p>Паралельні 10 сканерів • Оцінка ризику 0-100 • PDF + CSV • OWASP TOP-10</p>
 
   <div class="scan-box">
     <input id="urlInput" type="text" placeholder="https://testphp.vulnweb.com" autocomplete="off" spellcheck="false">
@@ -40,12 +41,12 @@
   <div class="feature-card">
     <div class="icon">⚡</div>
     <h3>Швидко</h3>
-    <p>5 сканерів паралельно через <code>asyncio.gather</code> — 8-15 сек замість 60</p>
+    <p>10 сканерів паралельно через <code>asyncio.gather</code> — 8-15 сек, live via WebSocket</p>
   </div>
   <div class="feature-card">
     <div class="icon">🔒</div>
     <h3>Безпечно</h3>
-    <p>Перевірка заголовків, SSL, портів, XSS та SQLi за OWASP TOP-10</p>
+    <p>Headers, SSL, Ports, XSS, SQLi, CORS, CSRF, Redirect, Traversal, security.txt</p>
   </div>
   <div class="feature-card">
     <div class="icon">📄</div>
@@ -59,7 +60,7 @@
 </div>
 
 <footer class="footer">
-  CyberGuard v1.0 • OWASP TOP-10 • Для навчання та аудиту власних сайтів • <a href="history.html">Історія сканувань</a>
+  CyberGuard v2.0 • 10 сканерів • OWASP TOP-10 • <a href="history.html">Історія</a> • <a href="/api/health">API Health</a>
 </footer>
 
 <script src="app.js"></script>

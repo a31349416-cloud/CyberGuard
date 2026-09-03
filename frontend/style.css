@@ -1,4 +1,4 @@
-/* CyberGuard — Dark Cyber Theme */
+/* CyberGuard — Dark Cyber Theme + Light */
 :root {
   --bg: #0f172a;
   --bg2: #1e293b;
@@ -12,6 +12,14 @@
   --yellow: #eab308;
   --red: #ef4444;
   --radius: 14px;
+}
+[data-theme="light"] {
+  --bg: #f8fafc;
+  --bg2: #ffffff;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --muted: #64748b;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -268,3 +276,8 @@ tr:hover td { background: rgba(30,41,59,0.6); }
 
 /* Disclaimer */
 .disclaimer { max-width: 860px; margin: 18px auto; padding: 12px 16px; background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.22); border-radius: 10px; font-size: 0.82rem; color: var(--muted); text-align: center; }
+
+/* Light theme adjustments */
+[data-theme="light"] .navbar { background: rgba(255,255,255,0.9); }
+[data-theme="light"] .scan-box { box-shadow: 0 8px 32px rgba(0,0,0,0.08); }
+[data-theme="light"] tr:hover td { background: rgba(241,245,249,0.9); }

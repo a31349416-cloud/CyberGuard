@@ -8,22 +8,20 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 <body>
-
 <nav class="navbar">
   <div class="logo">🛡️ Cyber<span>Guard</span></div>
   <div class="nav-links">
     <a href="index.html">Сканування</a>
     <a href="history.html">Історія</a>
+    <a href="#" onclick="toggleTheme();return false;" title="Тема">🌓</a>
   </div>
 </nav>
-
 <div id="loading" class="dashboard" style="text-align:center; padding:60px 20px;">
   <div class="spinner" style="width:32px;height:32px;border-width:3px;"></div>
   <p style="margin-top:14px; color:var(--muted);">Завантажуємо результати...</p>
+  <div id="wsStatus" style="margin-top:8px; font-size:0.82rem; color:var(--muted);"></div>
 </div>
-
 <div id="dashboard" class="dashboard" style="display:none;">
-  <!-- Risk Hero -->
   <div class="risk-hero">
     <div id="riskCircle" class="risk-circle">
       <div id="riskScore" class="score">--</div>
@@ -31,142 +29,142 @@
     </div>
     <div id="riskMeta" class="risk-meta"></div>
     <div style="margin-top:16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
-      <button class="btn-primary" onclick="downloadPDF()">📄 Завантажити PDF</button>
+      <button class="btn-primary" onclick="downloadPDF()">📄 PDF</button>
+      <button class="btn-secondary" onclick="exportCSV()">📊 CSV</button>
       <button class="btn-secondary" onclick="location.href='index.html'">🔄 Сканувати знову</button>
     </div>
   </div>
-
   <div class="dashboard-grid">
     <div class="card">
       <h3>📊 Розподіл за severity</h3>
       <canvas id="chartCanvas" height="220"></canvas>
     </div>
     <div class="card">
-      <h3>🔎 Деталі сканерів</h3>
+      <h3>🔎 Деталі сканерів (10)</h3>
       <div id="scannersInfo" style="font-size:0.88rem; color:var(--muted); line-height:1.8;"></div>
     </div>
   </div>
-
   <div class="card">
-    <h3>🐛 Вразливості (<span id="findingsCount">0</span>)</h3>
-    <div id="findingsList" class="findings-list"></div>
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
+      <h3>🐛 Вразливості (<span id="findingsCount">0</span>)</h3>
+      <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <input id="searchInput" placeholder="Пошук..." style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); font-size:0.85rem;">
+        <select id="filterSeverity" style="padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text);">
+          <option value="">Всі severity</option>
+          <option value="CRITICAL">CRITICAL</option>
+          <option value="HIGH">HIGH</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="LOW">LOW</option>
+        </select>
+        <button class="btn-secondary" style="padding:7px 10px; font-size:0.82rem;" onclick="copyLink()">🔗 Копіювати лінк</button>
+      </div>
+    </div>
+    <div id="findingsList" class="findings-list" style="margin-top:12px;"></div>
   </div>
 </div>
-
 <div id="errorBox" class="dashboard" style="display:none; text-align:center; padding:40px 20px;">
   <p style="font-size:1.1rem; margin-bottom:10px;">😕 Не вдалося завантажити результат</p>
   <p id="errorText" style="color:var(--muted);"></p>
   <button class="btn-secondary" style="margin-top:16px;" onclick="location.href='index.html'">На головну</button>
 </div>
-
-<footer class="footer">CyberGuard • OWASP TOP-10 • <a href="index.html">Нове сканування</a></footer>
-
+<footer class="footer">CyberGuard v2 • 10 сканерів • <a href="index.html">Нове сканування</a></footer>
 <script>
 const API = location.origin.includes('localhost') ? 'http://localhost:8000' : '';
+const WS_BASE = API ? API.replace('http','ws') : (location.protocol==='https:'?'wss://'+location.host:'ws://'+location.host);
 const params = new URLSearchParams(location.search);
 const scanId = params.get('id');
-
+let allFindings=[];
 if(!scanId){
   document.getElementById('loading').style.display='none';
   document.getElementById('errorBox').style.display='block';
-  document.getElementById('errorText').textContent = 'Немає scan_id в URL. Повернись на головну та запусти сканування.';
+  document.getElementById('errorText').textContent = 'Немає scan_id в URL.';
 } else {
-  loadResult();
+  connectWS();
 }
-
-async function loadResult(){
+function connectWS(){
+  let ws;
+  try{ ws=new WebSocket(`${WS_BASE}/ws/${scanId}`);}catch{ return loadResultPolling(); }
+  let gotCompleted=false;
+  const fallbackTimer=setTimeout(()=>{ if(!gotCompleted){ try{ws.close();}catch{}; loadResultPolling(); } }, 2500);
+  document.getElementById('wsStatus').textContent='Live via WebSocket…';
+  ws.onmessage=(ev)=>{
+    try{
+      const msg=JSON.parse(ev.data);
+      if(msg.event==='progress' || msg.event==='init'){
+        document.getElementById('loading').innerHTML=`<div class="progress-bar" style="max-width:420px; margin:0 auto;"><div class="progress-fill" style="width:${msg.progress||30}%"></div></div><p style="margin-top:14px; color:var(--muted);"><span class="spinner"></span> ${msg.message||'Скануємо...'} (${msg.progress||0}%)</p><div style="margin-top:6px; font-size:0.78rem; color:var(--muted);">Live WS • 10 сканерів паралельно</div>`;
+      } else if(msg.event==='scanner_done'){
+        document.getElementById('wsStatus').textContent=`${msg.scanner} done`;
+      } else if(msg.event==='completed'){
+        gotCompleted=true; clearTimeout(fallbackTimer);
+        loadResultPolling(); // fetch full result
+      } else if(msg.event==='failed'){
+        gotCompleted=true; clearTimeout(fallbackTimer);
+        throw new Error(msg.message||'Scan failed');
+      }
+    }catch(e){
+      if(e.message && e.message.includes('failed')){
+        document.getElementById('loading').style.display='none';
+        document.getElementById('errorBox').style.display='block';
+        document.getElementById('errorText').textContent=e.message;
+      }
+    }
+  };
+  ws.onerror=()=>{ clearTimeout(fallbackTimer); if(!gotCompleted) loadResultPolling(); };
+  ws.onclose=()=>{ if(!gotCompleted){ clearTimeout(fallbackTimer); loadResultPolling(); } };
+  // також запусти polling як бекап якщо WS не дав completed за 12с
+  setTimeout(()=>{ if(!gotCompleted) loadResultPolling(); }, 12000);
+}
+async function loadResultPolling(){
   try{
     const r = await fetch(`${API}/api/result/${scanId}`);
     if(!r.ok) throw new Error(await r.text());
     const data = await r.json();
-
-    if(data.status === 'running' || data.status === 'pending'){
-      document.getElementById('loading').innerHTML = `
-        <div class="progress-bar" style="max-width:420px; margin:0 auto;"><div class="progress-fill" style="width:${data.progress||30}%"></div></div>
-        <p style="margin-top:14px; color:var(--muted);"><span class="spinner"></span> ${data.message||'Сканування...'} (${data.progress||0}%)</p>
-        <p style="margin-top:8px; font-size:0.82rem; color:var(--muted);">Сканери працюють паралельно — зачекай 8-15 сек</p>
-      `;
-      setTimeout(loadResult, 1200);
-      return;
+    if(data.status==='running' || data.status==='pending'){
+      document.getElementById('loading').innerHTML=`<div class="progress-bar" style="max-width:420px; margin:0 auto;"><div class="progress-fill" style="width:${data.progress||30}%"></div></div><p style="margin-top:14px; color:var(--muted);"><span class="spinner"></span> ${data.message||'Сканування...'} (${data.progress||0}%)</p>`;
+      setTimeout(loadResultPolling, 1200); return;
     }
-    if(data.status === 'failed'){
-      throw new Error(data.message || 'Scan failed');
-    }
+    if(data.status==='failed') throw new Error(data.message||'Scan failed');
     renderDashboard(data);
   }catch(e){
     document.getElementById('loading').style.display='none';
     document.getElementById('errorBox').style.display='block';
-    document.getElementById('errorText').textContent = e.message;
+    document.getElementById('errorText').textContent=e.message;
   }
 }
-
 function renderDashboard(data){
   document.getElementById('loading').style.display='none';
   document.getElementById('dashboard').style.display='block';
-
-  const score = data.risk_score ?? 0;
-  const level = data.level || 'LOW';
-  const findings = data.findings || [];
-  const scanners = data.scanners || [];
-
-  // Risk circle
-  const circle = document.getElementById('riskCircle');
-  circle.className = 'risk-circle ' + level.toLowerCase();
-  document.getElementById('riskScore').textContent = score;
-  document.getElementById('riskLevel').textContent = level;
-  const levelEmoji = level==='HIGH' ? '🔴' : level==='MEDIUM' ? '🟡' : '🟢';
-  document.getElementById('riskMeta').innerHTML = `${levelEmoji} <b>${data.url}</b> • ${findings.length} вразливостей • ${data.duration_ms ? (data.duration_ms/1000).toFixed(1)+'s' : ''} • <span style="font-size:0.8rem;">ID: ${data.scan_id}</span>`;
-
-  document.getElementById('findingsCount').textContent = findings.length;
-
-  // Chart
-  const counts = { LOW:0, MEDIUM:0, HIGH:0, CRITICAL:0 };
-  findings.forEach(f=>{ const s=(f.severity||'LOW').toUpperCase(); counts[s]=(counts[s]||0)+1; });
-  const ctx = document.getElementById('chartCanvas').getContext('2d');
-  new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-      labels: ['HIGH','MEDIUM','LOW','CRITICAL'],
-      datasets: [{ data: [counts.HIGH, counts.MEDIUM, counts.LOW, counts.CRITICAL], backgroundColor: ['#ef4444','#eab308','#22c55e','#991b1b'], borderWidth:0 }]
-    },
-    options: { plugins:{ legend:{ position:'bottom', labels:{ color:'#94a3b8', padding:14, font:{size:12} } } }, cutout:'62%' }
-  });
-
-  // Scanners info
-  document.getElementById('scannersInfo').innerHTML = scanners.map(s=>`
-    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #334155; padding:6px 0;">
-      <span><b>${s.scanner}</b> — ${s.findings?.length||0} findings</span>
-      <span style="color:var(--muted);">${s.duration_ms||0} ms ${s.error ? '⚠️' : '✓'}</span>
-    </div>
-  `).join('') || '<span style="color:var(--muted)">Немає даних</span>';
-
-  // Findings list
-  const list = document.getElementById('findingsList');
-  if(findings.length===0){
-    list.innerHTML = `<div style="text-align:center; padding:28px; color:var(--green);">✅ Вразливостей не знайдено! Відмінна робота 🎉</div>`;
-  } else {
-    list.innerHTML = findings.map((f,i)=>`
-      <div class="finding-card ${f.severity}">
-        <div class="finding-head">
-          <strong>${i+1}. ${escapeHtml(f.type)}</strong>
-          <span>
-            <span class="badge ${f.severity}">${f.severity}</span>
-            <span style="margin-left:6px; font-size:0.8rem; font-weight:700; color:var(--muted);">+${f.score}</span>
-          </span>
-        </div>
-        <div class="finding-desc">${escapeHtml(f.description||'')}</div>
-        <div class="fix-box"><b>🛠️ Як виправити:</b> ${escapeHtml(f.fix||'')}</div>
-        ${f.owasp_category ? `<div class="owasp">OWASP: ${escapeHtml(f.owasp_category)}</div>` : ''}
-        ${f.evidence ? `<div class="owasp" style="word-break:break-all;">Evidence: <code>${escapeHtml(String(f.evidence).slice(0,180))}</code></div>` : ''}
-      </div>
-    `).join('');
-  }
+  const score=data.risk_score??0; const level=data.level||'LOW'; allFindings=data.findings||[]; const scanners=data.scanners||[];
+  const circle=document.getElementById('riskCircle');
+  circle.className='risk-circle '+level.toLowerCase();
+  document.getElementById('riskScore').textContent=score;
+  document.getElementById('riskLevel').textContent=level;
+  const emoji=level==='HIGH'?'🔴':level==='MEDIUM'?'🟡':'🟢';
+  document.getElementById('riskMeta').innerHTML=`${emoji} <b>${data.url}</b> • ${allFindings.length} вразливостей • ${data.duration_ms?(data.duration_ms/1000).toFixed(1)+'s':''} • ID: ${data.scan_id}`;
+  document.getElementById('findingsCount').textContent=allFindings.length;
+  const counts={LOW:0,MEDIUM:0,HIGH:0,CRITICAL:0};
+  allFindings.forEach(f=>{ const s=(f.severity||'LOW').toUpperCase(); counts[s]=(counts[s]||0)+1; });
+  const ctx=document.getElementById('chartCanvas').getContext('2d');
+  new Chart(ctx,{type:'doughnut',data:{labels:['HIGH','MEDIUM','LOW','CRITICAL'],datasets:[{data:[counts.HIGH,counts.MEDIUM,counts.LOW,counts.CRITICAL],backgroundColor:['#ef4444','#eab308','#22c55e','#991b1b'],borderWidth:0}]},options:{plugins:{legend:{position:'bottom',labels:{color:'#94a3b8',padding:14,font:{size:12}}}},cutout:'62%'}});
+  document.getElementById('scannersInfo').innerHTML=scanners.map(s=>`<div style="display:flex; justify-content:space-between; border-bottom:1px solid #334155; padding:6px 0;"><span><b>${s.scanner}</b> — ${s.findings?.length||0}</span><span style="color:var(--muted);">${s.duration_ms||0} ms ${s.error?'⚠️':'✓'}</span></div>`).join('')||'<span style="color:var(--muted)">—</span>';
+  document.getElementById('searchInput').addEventListener('input', renderList);
+  document.getElementById('filterSeverity').addEventListener('change', renderList);
+  renderList();
 }
-
-function downloadPDF(){
-  window.open(`${API}/api/report/${scanId}`, '_blank');
+function renderList(){
+  const q=(document.getElementById('searchInput').value||'').toLowerCase();
+  const sev=document.getElementById('filterSeverity').value;
+  const filtered=allFindings.filter(f=>{ if(sev && f.severity!==sev) return false; if(q && !`${f.type} ${f.description} ${f.fix}`.toLowerCase().includes(q)) return false; return true; });
+  const list=document.getElementById('findingsList');
+  document.getElementById('findingsCount').textContent=filtered.length+' / '+allFindings.length;
+  if(filtered.length===0){ list.innerHTML=`<div style="text-align:center; padding:20px; color:var(--muted);">Нічого не знайдено за фільтром</div>`; return; }
+  list.innerHTML=filtered.map((f,i)=>`<div class="finding-card ${f.severity}"><div class="finding-head"><strong>${i+1}. ${escapeHtml(f.type)}</strong><span><span class="badge ${f.severity}">${f.severity}</span><span style="margin-left:6px; font-size:0.8rem; font-weight:700; color:var(--muted);">+${f.score}</span></span></div><div class="finding-desc">${escapeHtml(f.description||'')}</div><div class="fix-box"><b>🛠️ Як виправити:</b> ${escapeHtml(f.fix||'')}</div>${f.owasp_category?`<div class="owasp">OWASP: ${escapeHtml(f.owasp_category)}</div>`:''}${f.evidence?`<div class="owasp" style="word-break:break-all;">Evidence: <code>${escapeHtml(String(f.evidence).slice(0,180))}</code></div>`:''}</div>`).join('');
 }
+function downloadPDF(){ window.open(`${API}/api/report/${scanId}`, '_blank'); }
+function exportCSV(){ window.open(`${API}/api/export/${scanId}`, '_blank'); }
+function copyLink(){ navigator.clipboard.writeText(location.href); alert('Лінк скопійовано'); }
 function escapeHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+(function(){ const k='cg-theme'; if(localStorage.getItem(k)==='light') document.documentElement.setAttribute('data-theme','light'); window.toggleTheme=()=>{ const cur=document.documentElement.getAttribute('data-theme'); const n=cur==='light'?'dark':'light'; if(n==='light') document.documentElement.setAttribute('data-theme','light'); else document.documentElement.removeAttribute('data-theme'); localStorage.setItem(k,n); }; })();
 </script>
 </body>
 </html>
