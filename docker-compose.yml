@@ -1,0 +1,22 @@
+services:
+  cyberguard:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/scans.db:/app/backend/scans.db
+      - ./backend/reports:/app/backend/reports
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Optional Redis for scan_status persistence + rate limiting (auto-fallback to memory if not set)
+  # redis:
+  #   image: redis:7-alpine
+  #   ports:
+  #     - "6379:6379"

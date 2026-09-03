@@ -1,0 +1,12 @@
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+.git
+.gitignore
+backend/scans.db
+backend/reports/*.pdf
+.pytest_cache
+.mypy_cache
+.ruff_cache
