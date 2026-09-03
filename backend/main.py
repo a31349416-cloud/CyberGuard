@@ -322,10 +322,17 @@ async def download_report(scan_id: str):
     pdf_path = generate_pdf(db_data)
     return FileResponse(pdf_path, media_type="application/pdf", filename=f"CyberGuard_{scan_id}.pdf", headers={"Content-Disposition": f"attachment; filename=CyberGuard_{scan_id}.pdf"})
 
-# Статика
+# Статика фронтенду — явний рут + mount
 frontend_path = Path(__file__).parent.parent / "frontend"
+print(f"[CyberGuard] frontend_path={frontend_path} exists={frontend_path.exists()} files={list(frontend_path.glob('*'))[:5] if frontend_path.exists() else 'NO'}")
+
+@app.get("/", include_in_schema=False)
+async def serve_index():
+    index = frontend_path / "index.html"
+    if index.exists():
+        return FileResponse(str(index), media_type="text/html")
+    return JSONResponse({"detail": "Frontend not found. Check frontend/index.html exists.", "frontend_path": str(frontend_path)})
+
 if frontend_path.exists():
-    try:
-        app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
-    except Exception:
-        pass
+    # Статика для /style.css, /app.js, /dashboard.html і т.д.
+    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
