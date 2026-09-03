@@ -152,11 +152,11 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     # Титулка
     pdf.set_font("Helvetica", "B", 22)
     pdf.set_text_color(*COLORS["dark"])
-    pdf.cell(0, 12, "CyberGuard", align="C")
+    pdf.cell(0, 12, "CyberGuard v2", align="C")
     pdf.ln(9)
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(*COLORS["muted"])
-    pdf.cell(0, 5, "OWASP TOP-10  |  Security Audit Report", align="C")
+    pdf.cell(0, 5, "OWASP TOP-10  |  10 Scanners Security Audit Report", align="C")
     pdf.ln(8)
 
     pdf.set_draw_color(226, 232, 240)
@@ -176,7 +176,7 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.risk_badge(score, level)
     pdf.ln(2)
 
-    # Summary таблиця
+    # Summary таблиця + міні-бар chart
     pdf.section_title("Summary by Severity")
     pdf.ln(1)
     counts = {"LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0}
@@ -201,7 +201,39 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
         c = COLORS.get(cols[i].split()[0], COLORS["dark"])
         pdf.set_text_color(*c if i < 4 else COLORS["dark"])
         pdf.cell(col_w[i], 8, v, border=1, align="C")
-    pdf.ln(14)
+    pdf.ln(10)
+    # Бар візуалізація
+    total = max(1, len(findings))
+    bar_w = 150
+    x0 = 30
+    y = pdf.get_y()
+    pdf.set_font("Helvetica", "", 6)
+    pdf.set_text_color(*COLORS["muted"])
+    pdf.set_xy(x0, y)
+    pdf.cell(bar_w, 4, f"Severity distribution (total {len(findings)})", align="C")
+    pdf.ln(5)
+    x = x0
+    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+        cnt = counts[sev]
+        w = bar_w * cnt / total if cnt else 0
+        if w > 0:
+            pdf.set_fill_color(*COLORS[sev])
+            pdf.rect(x, pdf.get_y(), w, 6, style="F")
+            if w > 12:
+                pdf.set_xy(x, pdf.get_y())
+                pdf.set_font("Helvetica", "B", 6)
+                pdf.set_text_color(255,255,255)
+                pdf.cell(w, 6, str(cnt), align="C")
+        x += w
+    # рамка
+    pdf.rect(x0, pdf.get_y(), bar_w, 6, style="D")
+    pdf.ln(10)
+    # Легенда
+    pdf.set_font("Helvetica", "", 6)
+    pdf.set_text_color(*COLORS["muted"])
+    pdf.set_x(x0)
+    pdf.cell(bar_w, 3, "  ".join([f"{s}: {counts[s]}" for s in ["CRITICAL","HIGH","MEDIUM","LOW"]]), align="C")
+    pdf.ln(4)
 
     # Список вразливостей
     pdf.section_title(f"Findings Detail  ({len(findings)} issues)")
