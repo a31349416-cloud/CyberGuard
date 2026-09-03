@@ -45,8 +45,12 @@ SQLI_PAYLOADS = [
     "1' AND 1=1--",
 ]
 
-# Time-based payload (для перевірки затримки)
-TIME_PAYLOAD = "' AND SLEEP(3)--"
+# Time-based / blind payloads
+TIME_PAYLOADS = [
+    "' AND SLEEP(3)--",
+    "' OR SLEEP(3)--",
+    "'; WAITFOR DELAY '0:0:3'--",
+]
 
 
 def check_sqli_error(text: str) -> tuple[bool, str]:
@@ -180,7 +184,36 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
                 if vulnerable:
                     break
 
-        # Крок 3: Перевірка на information disclosure через SQL коментарі / stack trace
+        # Крок 3: Time-based blind SQLi (затримка)
+        if not findings:
+            for payload in TIME_PAYLOADS[:1]:
+                try:
+                    base_params = {k: v[0] for k, v in query_params.items()} if query_params else {"id": "1"}
+                    test_params = base_params.copy()
+                    # додаємо payload до першого параметра
+                    first_key = next(iter(test_params), "id")
+                    test_params[first_key] = str(test_params[first_key]) + payload
+                    qs = urlencode(test_params)
+                    test_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{qs}" if query_params else f"{url.rstrip('/')}?{qs}"
+                    import time as _t
+                    t0 = _t.time()
+                    r = session.get(test_url, timeout=7, verify=True)
+                    dt = _t.time() - t0
+                    if dt > 2.5 and r.status_code < 500:
+                        findings.append({
+                            "type": f"Potential Blind SQLi (time-based) in '{first_key}'",
+                            "severity": "HIGH",
+                            "score": 25,
+                            "description": f"Параметр затримав відповідь на {dt:.1f}s з payload {payload} — можливий blind SQLi",
+                            "fix": "Parameterized queries, WAF, обмежити час виконання запитів",
+                            "owasp_category": "A03:2021 - Injection (SQLi)",
+                            "evidence": f"Delay {dt:.1f}s for payload {payload}",
+                        })
+                        break
+                except Exception:
+                    continue
+
+        # Крок 4: Перевірка на information disclosure через SQL коментарі / stack trace
         error_indicators = ["stack trace", "exception", "error in your SQL syntax", "mysql_fetch", "pg_query"]
         text_lower = resp.text.lower()
         for indicator in error_indicators:

@@ -13,6 +13,15 @@ XSS_PAYLOADS = [
     "\"><svg onload=alert(1)>",
     "'\"><img src=x onerror=alert(1)>",
     "javascript:alert(1)",
+    "<iframe src=javascript:alert(1)>",
+    "'-alert(1)-'",
+    "{{7*7}}",  # SSTI/XSS hint
+]
+
+# Blind/encoded variants
+XSS_ENCODED_PAYLOADS = [
+    "%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+    "&lt;script&gt;alert(1)&lt;/script&gt;",
 ]
 
 # Для перевірки відображення — спрощені маркери
