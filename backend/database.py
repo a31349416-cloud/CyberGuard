@@ -108,13 +108,22 @@ def get_scan(scan_id: str) -> Optional[dict]:
     return d
 
 
-def get_history(limit: int = 50, offset: int = 0) -> List[dict]:
+def get_history(limit: int = 50, offset: int = 0, q: str = None, level: str = None) -> List[dict]:
     conn = get_connection()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT scan_id, url, status, risk_score, level, findings, created_at, completed_at FROM scans ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        (limit, offset),
-    )
+    # Фільтри q (пошук по url) та level
+    where = []
+    params = []
+    if q:
+        where.append("url LIKE ?")
+        params.append(f"%{q}%")
+    if level:
+        where.append("level = ?")
+        params.append(level.upper())
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    query = f"SELECT scan_id, url, status, risk_score, level, findings, created_at, completed_at FROM scans {where_sql} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    cur.execute(query, params)
     rows = cur.fetchall()
     conn.close()
     result = []
