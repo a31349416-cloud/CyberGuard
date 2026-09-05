@@ -107,18 +107,43 @@ def scan_headers(url: str, timeout: int = 8) -> dict:
             else:
                 # Додаткові перевірки значень
                 val = resp_headers[hdr.lower()]
-                if hdr == "Strict-Transport-Security" and "max-age" not in val.lower():
-                    findings.append(
-                        {
-                            "type": "Weak HSTS",
-                            "severity": "LOW",
-                            "score": 5,
-                            "description": "HSTS присутній але без max-age - неефективний",
-                            "fix": "Встановити HSTS з max-age >= 31536000",
-                            "owasp_category": "A05:2021",
-                            "evidence": f"HSTS value: {val}",
-                        }
-                    )
+                if hdr == "Strict-Transport-Security":
+                    if "max-age" not in val.lower():
+                        findings.append(
+                            {
+                                "type": "Weak HSTS",
+                                "severity": "LOW",
+                                "score": 5,
+                                "description": "HSTS присутній але без max-age - неефективний",
+                                "fix": "Встановити HSTS з max-age >= 31536000",
+                                "owasp_category": "A05:2021",
+                                "evidence": f"HSTS value: {val}",
+                            }
+                        )
+                    if "preload" not in val.lower():
+                        findings.append(
+                            {
+                                "type": "HSTS without preload",
+                                "severity": "LOW",
+                                "score": 5,
+                                "description": "HSTS без preload — домен не в HSTS preload list, перший запит вразливий",
+                                "fix": "Додати preload та подати на hstspreload.org: Strict-Transport-Security: max-age=31536000; includeSubDomains; preload",
+                                "owasp_category": "A05:2021",
+                                "evidence": f"HSTS: {val}",
+                            }
+                        )
+                    if "includesubdomains" not in val.lower():
+                        findings.append(
+                            {
+                                "type": "HSTS without includeSubDomains",
+                                "severity": "LOW",
+                                "score": 5,
+                                "description": "HSTS без includeSubDomains — субдомени не захищені",
+                                "fix": "Додати includeSubDomains",
+                                "owasp_category": "A05:2021",
+                                "evidence": val,
+                            }
+                        )
                 if hdr == "X-Frame-Options" and val.lower() not in (
                     "deny",
                     "sameorigin",
@@ -134,6 +159,33 @@ def scan_headers(url: str, timeout: int = 8) -> dict:
                             "evidence": val,
                         }
                     )
+                if hdr == "Content-Security-Policy":
+                    has_nonce = "nonce-" in val
+                    has_hash = "sha256-" in val or "sha384-" in val or "sha512-" in val
+                    if "unsafe-inline" in val and not has_nonce and not has_hash:
+                        findings.append(
+                            {
+                                "type": "CSP without nonces/hashes (unsafe-inline)",
+                                "severity": "MEDIUM",
+                                "score": 10,
+                                "description": "CSP використовує unsafe-inline без nonces/hashes — слабкий захист від XSS",
+                                "fix": "Замінити unsafe-inline на nonce- або hash-based: script-src 'nonce-xxx' або 'sha256-...'",
+                                "owasp_category": "A03:2021",
+                                "evidence": val[:200],
+                            }
+                        )
+                    if "'self'" not in val and "default-src" in val:
+                        findings.append(
+                            {
+                                "type": "Weak CSP default-src",
+                                "severity": "LOW",
+                                "score": 5,
+                                "description": "CSP default-src без 'self' — занадто дозвільний або навпаки порожній",
+                                "fix": "Налаштувати CSP: default-src 'self'; script-src 'self'",
+                                "owasp_category": "A03:2021",
+                                "evidence": val[:200],
+                            }
+                        )
 
         # Перевірка інформаційних витоків
         for hdr, meta in ADDITIONAL_CHECKS.items():
@@ -151,7 +203,7 @@ def scan_headers(url: str, timeout: int = 8) -> dict:
                     }
                 )
 
-        # Перевірка cookie flags
+        # Перевірка cookie flags + SRI
         cookies = resp.headers.get("Set-Cookie", "")
         if cookies:
             if "Secure" not in cookies:
@@ -178,6 +230,30 @@ def scan_headers(url: str, timeout: int = 8) -> dict:
                         "evidence": cookies[:120],
                     }
                 )
+        # SRI (Subresource Integrity) — перевірка <script src> з integrity
+        try:
+            from bs4 import BeautifulSoup
+
+            try:
+                soup_sri = BeautifulSoup(resp.text, "lxml")
+            except:
+                soup_sri = BeautifulSoup(resp.text, "html.parser")
+            scripts = soup_sri.find_all("script", src=True)
+            missing_sri = sum(1 for s in scripts if not s.get("integrity"))
+            if scripts and missing_sri > 0 and len(scripts) > 2:
+                findings.append(
+                    {
+                        "type": f"Missing SRI for {missing_sri}/{len(scripts)} scripts",
+                        "severity": "LOW",
+                        "score": 5,
+                        "description": f"{missing_sri} зовнішніх скриптів без integrity атрибуту — ризик підміни CDN",
+                        "fix": "Додати integrity=\"sha384-...\" та crossorigin=\"anonymous\" до <script src>",
+                        "owasp_category": "A08:2021 - Software and Data Integrity Failures",
+                        "evidence": f"{missing_sri}/{len(scripts)} without SRI",
+                    }
+                )
+        except Exception:
+            pass
 
     except requests.exceptions.SSLError as e:
         error = f"SSL error: {str(e)[:200]}"

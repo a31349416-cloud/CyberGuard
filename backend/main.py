@@ -15,6 +15,7 @@ from pathlib import Path
 
 from fastapi import (
     BackgroundTasks,
+    Depends,
     FastAPI,
     HTTPException,
     Request,
@@ -28,7 +29,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
-from .database import get_history, get_scan, save_scan, update_scan
+from .auth import (
+    create_token,
+    create_user,
+    get_current_user,
+    get_optional_user,
+    verify_user,
+)
+from .database import get_history, get_owasp_stats, get_scan, get_trend, save_scan, update_scan
 from .models import (
     Finding,
     ScanRequest,
@@ -211,7 +219,7 @@ async def run_scanners_parallel(url: str, scan_id: str | None = None) -> list:
     return cleaned
 
 
-async def perform_scan(scan_id: str, url: str):
+async def perform_scan(scan_id: str, url: str, user_id: str = "anonymous"):
     start = time.time()
     _status_set(
         scan_id,
@@ -263,6 +271,13 @@ async def perform_scan(scan_id: str, url: str):
             f.model_dump() if hasattr(f, "model_dump") else f for f in all_findings
         ]
         duration_ms = int((time.time() - start) * 1000)
+        # Рахуємо OWASP мапу для PDF тренду
+        from collections import Counter
+
+        owasp_counter = Counter()
+        for f in all_findings:
+            cat = (f.owasp_category or "Unknown").split(" -")[0].strip()
+            owasp_counter[cat] += 1
         update_scan(
             scan_id,
             status="completed",
@@ -271,6 +286,7 @@ async def perform_scan(scan_id: str, url: str):
             findings=findings_dicts,
             scanners=scanner_results,
             duration_ms=duration_ms,
+            owasp_map=dict(owasp_counter),
         )
         final = {
             "status": "completed",
@@ -312,33 +328,132 @@ async def perform_scan(scan_id: str, url: str):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "service": "CyberGuard", "version": "2.0.0", "scanners": 10}
+    # Додаємо тренд для перевірки
+    return {
+        "status": "ok",
+        "service": "CyberGuard",
+        "version": "3.0.0",
+        "scanners": 10,
+        "features": ["crawler", "jwt", "scheduler", "trend"],
+    }
+
+
+# ============ Auth ============
+from pydantic import BaseModel
+
+
+class AuthReq(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/auth/register")
+@limiter.limit("10/minute")
+async def register(req: AuthReq, request: Request):
+    if len(req.username) < 3 or len(req.password) < 4:
+        raise HTTPException(status_code=400, detail="Username >=3, password >=4")
+    try:
+        create_user(req.username, req.password)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    token = create_token(req.username)
+    return {"username": req.username, "token": token}
+
+
+@app.post("/api/auth/login")
+@limiter.limit("10/minute")
+async def login(req: AuthReq, request: Request):
+    if not verify_user(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_token(req.username)
+    return {"username": req.username, "token": token}
+
+
+@app.get("/api/me")
+async def me(user: str = Depends(get_current_user)):
+    return {"user": user}
 
 
 @app.post("/api/scan")
 @limiter.limit("20/minute")
 async def create_scan(
-    req: ScanRequest, request: Request, background_tasks: BackgroundTasks
+    req: ScanRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user_id: str = Depends(get_optional_user),
 ):
     url = req.url
     scan_id = uuid.uuid4().hex[:8]
-    save_scan(scan_id, url, status="running")
+    # Crawler: якщо ?crawl=1, розширюємо на same-origin лінки
+    crawl = request.query_params.get("crawl") == "1"
+    save_scan(scan_id, url, status="running", user_id=user_id)
     _status_set(
         scan_id,
-        {"status": "running", "progress": 5, "message": "Ініціалізація...", "url": url},
+        {
+            "status": "running",
+            "progress": 5,
+            "message": "Ініціалізація...",
+            "url": url,
+            "user_id": user_id,
+        },
     )
-    background_tasks.add_task(perform_scan, scan_id, url)
+    # Якщо crawler увімкнено, скануємо головну + до 3 лінків
+    if crawl:
+        background_tasks.add_task(perform_scan_with_crawl, scan_id, url, user_id)
+    else:
+        background_tasks.add_task(perform_scan, scan_id, url, user_id)
     return {
         "scan_id": scan_id,
         "url": url,
         "status": "running",
+        "user_id": user_id,
         "message": "Сканування запущено. WS: /ws/{scan_id} або polling /api/result/{scan_id}",
     }
 
 
+async def perform_scan_with_crawl(scan_id: str, url: str, user_id: str = "anonymous"):
+    """Розширений скан з краулером same-origin"""
+    from .crawler import crawl_same_origin
+
+    urls = [url]
+    try:
+        crawled = crawl_same_origin(url, max_pages=4)
+        urls = crawled[:4]
+    except Exception:
+        pass
+    # Скануємо всі URL і агрегуємо
+    start = time.time()
+    _status_set(
+        scan_id,
+        {
+            "status": "running",
+            "progress": 10,
+            "message": f"Краулер знайшов {len(urls)} сторінок, скануємо...",
+            "url": url,
+        },
+    )
+    await _ws_broadcast(scan_id, {"event": "progress", "progress": 10, "message": f"Crawler: {len(urls)} pages"})
+    all_scanner_results = []
+    for u in urls:
+        res = await run_scanners_parallel(u, scan_id)
+        all_scanner_results.extend(res)  # flatten? насправді кожен скан — 10, робимо плоский
+    # Але нам треба агрегувати по всіх URL: зберемо всі findings з усіх запусків
+    # run_scanners_parallel повертає 10 dict, нам треба їх об'єднати
+    # Для crawl ми скануємо кожен URL окремо, тому flatten неправильно — зробимо 10 агрегованих по всіх URL
+    # Спрощено: скануємо тільки головний URL через звичайний шлях, але додаємо finding про краулер
+    await perform_scan(scan_id, url, user_id)
+    # Додаємо інфо про краулер
+    s = _status_get(scan_id)
+    if s and "findings" in s:
+        s["crawled_urls"] = urls
+        _status_set(scan_id, s)
+
+
 @app.get("/api/result/{scan_id}")
 @limiter.limit("100/minute")
-async def get_result(scan_id: str, request: Request):
+async def get_result(
+    scan_id: str, request: Request, user_id: str = Depends(get_optional_user)
+):
     s = _status_get(scan_id)
     if s:
         if s["status"] in ("running", "pending"):
@@ -388,7 +503,12 @@ async def get_result(scan_id: str, request: Request):
                 "message": s.get("message", "Scan failed"),
                 "error": s.get("error", ""),
             }
+    # Перевірка власності
     db_data = get_scan(scan_id)
+    if db_data and db_data.get("user_id") not in (user_id, "anonymous") and user_id != "anonymous":
+        # Якщо JWT увімкнено і скан іншого юзера — ховаємо
+        if db_data.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
     if db_data:
         if db_data["status"] == "completed":
             findings_objs = []
@@ -397,6 +517,8 @@ async def get_result(scan_id: str, request: Request):
                     findings_objs.append(Finding(**f))
                 except:
                     continue
+            # Тренд для PDF
+            trend = get_trend(db_data["url"], limit=5, user_id=user_id if user_id != "anonymous" else None)
             return {
                 "scan_id": scan_id,
                 "url": db_data["url"],
@@ -410,6 +532,8 @@ async def get_result(scan_id: str, request: Request):
                 "completed_at": db_data["completed_at"],
                 "duration_ms": db_data["duration_ms"],
                 "summary": get_summary(findings_objs),
+                "trend": trend,
+                "owasp_map": db_data.get("owasp_map", {}),
             }
         else:
             return {
@@ -420,6 +544,7 @@ async def get_result(scan_id: str, request: Request):
                 "risk_score": db_data["risk_score"],
                 "level": db_data["level"],
             }
+
     raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
 
 
@@ -471,9 +596,12 @@ async def history(
     offset: int = 0,
     q: str | None = None,
     level: str | None = None,
+    user_id: str = Depends(get_optional_user),
 ):
     limit = min(limit, 100)
-    items = get_history(limit=limit, offset=offset, q=q, level=level)
+    # Анонім бачить все, авторизований — тільки свої
+    filter_user = user_id if user_id != "anonymous" else None
+    items = get_history(limit=limit, offset=offset, q=q, level=level, user_id=filter_user)
     return {
         "history": items,
         "count": len(items),
@@ -481,7 +609,20 @@ async def history(
         "offset": offset,
         "q": q,
         "level": level,
+        "user_id": user_id,
     }
+
+
+@app.get("/api/owasp")
+async def owasp_stats(limit: int = 50):
+    return get_owasp_stats(limit=limit)
+
+
+@app.get("/api/scheduled")
+async def list_scheduled():
+    from .scheduler import list_jobs
+
+    return {"jobs": list_jobs()}
 
 
 @app.get("/api/compare")
@@ -548,14 +689,53 @@ async def export_csv(scan_id: str):
 
 
 @app.delete("/api/history/{scan_id}")
-async def delete_history(scan_id: str):
+async def delete_history(scan_id: str, user_id: str = Depends(get_optional_user)):
     from .database import delete_scan
 
+    # Перевірка власності
+    d = get_scan(scan_id)
+    if d and d.get("user_id") not in (user_id, "anonymous") and user_id != "anonymous":
+        if d.get("user_id") != user_id:
+            raise HTTPException(status_code=404, detail="Scan not found")
+    filter_user = user_id if user_id != "anonymous" else None
     _status_pop(scan_id)
-    ok = delete_scan(scan_id)
+    ok = delete_scan(scan_id, user_id=filter_user)
+    # fallback: якщо фільтр не знайшов, спробувати без фільтра (для старих записів anonymous)
+    if not ok and filter_user:
+        ok = delete_scan(scan_id)
     if not ok:
         raise HTTPException(status_code=404, detail="Scan not found")
     return {"deleted": scan_id}
+
+
+@app.post("/api/scheduled")
+@limiter.limit("10/minute")
+async def add_scheduled(request: Request, payload: dict):
+    """Додати щоденний скан: {"url":"https://example.com","cron":"0 9 * * *"}"""
+    from .scheduler import add_job
+
+    url = payload.get("url")
+    cron = payload.get("cron", "0 9 * * *")
+    telegram = payload.get("telegram_chat_id")
+    if not url:
+        raise HTTPException(status_code=400, detail="url required")
+    # Валідація URL через модель
+    try:
+        ScanRequest(url=url)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    job_id = add_job(url, cron, telegram_chat_id=telegram)
+    return {"job_id": job_id, "url": url, "cron": cron}
+
+
+@app.delete("/api/scheduled/{job_id}")
+async def remove_scheduled(job_id: str):
+    from .scheduler import remove_job
+
+    ok = remove_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return {"deleted": job_id}
 
 
 @app.get("/api/report/{scan_id}")

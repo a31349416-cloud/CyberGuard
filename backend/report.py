@@ -262,6 +262,71 @@ def generate_pdf(scan_data: dict, output_path: str | None = None) -> str:
     )
     pdf.ln(4)
 
+    # OWASP мапа
+    owasp_map = scan_data.get("owasp_map") or {}
+    if not owasp_map and findings:
+        from collections import Counter
+
+        c = Counter()
+        for f in findings:
+            cat = (f.get("owasp_category") or "Unknown").split(" -")[0].strip()
+            c[cat] += 1
+        owasp_map = dict(c)
+    if owasp_map:
+        pdf.section_title("OWASP Top-10 Map")
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "", 7)
+        pdf.set_text_color(*COLORS["dark"])
+        for cat, cnt in sorted(owasp_map.items(), key=lambda x: -x[1]):
+            pdf.set_x(14)
+            bar = "#" * min(cnt * 3, 30)
+            pdf.cell(0, 4, f"{cat:12} : {cnt:2}  {bar}")
+            pdf.ln(4)
+        pdf.ln(2)
+
+    # Тренд (останні 5 сканів для цього URL)
+    trend = scan_data.get("trend")
+    if not trend and url:
+        try:
+            from .database import get_trend
+
+            trend = get_trend(url, limit=5)
+        except:
+            trend = None
+    if trend and len(trend) > 1:
+        pdf.section_title("Risk Trend (last 5 scans for this URL)")
+        pdf.ln(1)
+        pdf.set_font("Helvetica", "", 7)
+        pdf.set_text_color(*COLORS["muted"])
+        # Графік лінія ASCII + бари
+        max_score = 100
+        x0, y0, w, h = 20, pdf.get_y() + 2, 170, 28
+        pdf.set_draw_color(226, 232, 240)
+        pdf.rect(x0, y0, w, h, style="D")
+        # Сітка
+        for i in [0, 25, 50, 75, 100]:
+            xx = x0 + w * i / 100
+            pdf.set_draw_color(248, 250, 252)
+            pdf.line(xx, y0, xx, y0 + h)
+        trend_rev = list(reversed(trend))  # хронологічно
+        for idx, t in enumerate(trend_rev):
+            sc = t.get("risk_score", 0)
+            # бари вертикальні
+            bar_h = h * sc / max_score
+            xx = x0 + w * idx / max(1, len(trend_rev) - 1) if len(trend_rev) > 1 else x0
+            # мітка
+            lvl = t.get("level", "LOW")
+            pdf.set_fill_color(*COLORS.get(lvl, COLORS["LOW"]))
+            pdf.rect(xx - 2, y0 + h - bar_h, 4, bar_h, style="F")
+            # дата
+            dt = str(t.get("created_at", ""))[:10]
+            pdf.set_xy(xx - 12, y0 + h + 1)
+            pdf.set_font("Helvetica", "", 5)
+            pdf.set_text_color(*COLORS["muted"])
+            pdf.cell(24, 3, f"{sc}", align="C")
+        pdf.set_y(y0 + h + 6)
+        pdf.ln(2)
+
     # Список вразливостей
     pdf.section_title(f"Findings Detail  ({len(findings)} issues)")
     pdf.ln(2)
