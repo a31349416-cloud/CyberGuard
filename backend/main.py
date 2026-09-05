@@ -58,8 +58,14 @@ from .scanners.ssl_check import scan_ssl
 from .scanners.traversal import scan_traversal
 from .scanners.xss import scan_xss
 
-# Rate limiter: 20 scan / хв на IP, 100 результатів / хв
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+# Rate limiter: distributed via Redis if REDIS_URL set, else memory
+redis_storage = os.getenv("REDIS_URL", "memory://")
+# slowapi expects redis://, Render gives redis://
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=["100/minute"],
+    storage_uri=redis_storage if redis_storage.startswith("redis") else "memory://",
+)
 
 app = FastAPI(
     title="CyberGuard API",
@@ -76,6 +82,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WAF — блокує великі body, логує XSS/SQLi в query (whitelist для сканера)
+try:
+    from .waf import WAFMiddleware
+
+    app.add_middleware(WAFMiddleware)
+    print("[CyberGuard] WAF middleware enabled")
+except Exception as e:
+    print(f"[WAF] not enabled: {e}")
 
 # Scan status: Redis if REDIS_URL set, else in-memory Dict
 scan_status: dict[str, dict] = {}
@@ -372,6 +387,8 @@ async def register(req: AuthReq, request: Request):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     tokens = create_tokens(req.username)
+    # alias token для зворотної сумісності
+    tokens["token"] = tokens["access_token"]
     return {"username": req.username, **tokens}
 
 
@@ -381,6 +398,7 @@ async def login(req: AuthReq, request: Request):
     if not verify_user(req.username, req.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     tokens = create_tokens(req.username)
+    tokens["token"] = tokens["access_token"]
     return {"username": req.username, **tokens}
 
 
@@ -392,6 +410,7 @@ async def refresh(request: Request):
         raise HTTPException(status_code=400, detail="refresh_token required")
     data = decode_token(refresh_token, expect_type="refresh")
     tokens = create_tokens(data["sub"])
+    tokens["token"] = tokens["access_token"]
     return tokens
 
 
