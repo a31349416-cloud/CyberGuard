@@ -31,9 +31,13 @@ from slowapi.util import get_remote_address
 
 from .auth import (
     create_token,
+    create_tokens,
     create_user,
+    decode_token,
     get_current_user,
+    get_current_user_with_role,
     get_optional_user,
+    require_admin,
     verify_user,
 )
 from .database import get_history, get_owasp_stats, get_scan, get_trend, save_scan, update_scan
@@ -345,6 +349,7 @@ from pydantic import BaseModel
 class AuthReq(BaseModel):
     username: str
     password: str
+    role: str | None = "user"
 
 
 @app.post("/api/auth/register")
@@ -352,12 +357,22 @@ class AuthReq(BaseModel):
 async def register(req: AuthReq, request: Request):
     if len(req.username) < 3 or len(req.password) < 4:
         raise HTTPException(status_code=400, detail="Username >=3, password >=4")
+    # role тільки admin може створити admin (поки що будь-хто створює user)
+    role = getattr(req, "role", "user")
+    if role == "admin":
+        # Тільки якщо вже є admin або JWT_SECRET не задано — дозволити першого admin
+        from .auth import _load_users
+
+        users = _load_users()
+        has_admin = any(u.get("role") == "admin" for u in users.values())
+        if has_admin:
+            raise HTTPException(status_code=403, detail="Only admin can create admin")
     try:
-        create_user(req.username, req.password)
+        create_user(req.username, req.password, role=role if role in ("user", "admin") else "user")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    token = create_token(req.username)
-    return {"username": req.username, "token": token}
+    tokens = create_tokens(req.username)
+    return {"username": req.username, **tokens}
 
 
 @app.post("/api/auth/login")
@@ -365,13 +380,32 @@ async def register(req: AuthReq, request: Request):
 async def login(req: AuthReq, request: Request):
     if not verify_user(req.username, req.password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_token(req.username)
-    return {"username": req.username, "token": token}
+    tokens = create_tokens(req.username)
+    return {"username": req.username, **tokens}
+
+
+@app.post("/api/auth/refresh")
+async def refresh(request: Request):
+    body = await request.json()
+    refresh_token = body.get("refresh_token", "")
+    if not refresh_token:
+        raise HTTPException(status_code=400, detail="refresh_token required")
+    data = decode_token(refresh_token, expect_type="refresh")
+    tokens = create_tokens(data["sub"])
+    return tokens
 
 
 @app.get("/api/me")
 async def me(user: str = Depends(get_current_user)):
     return {"user": user}
+
+
+@app.get("/api/admin/users")
+async def list_users(admin=Depends(require_admin)):
+    from .auth import _load_users
+
+    users = _load_users()
+    return {"users": [{"username": k, "role": v.get("role"), "created": v.get("created")} for k, v in users.items()]}
 
 
 @app.post("/api/scan")
