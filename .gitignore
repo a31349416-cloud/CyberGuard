@@ -30,3 +30,7 @@ Thumbs.db
 
 # PDF reports
 reports/
+
+# Alembic test db
+alembic_test.db
+backend/users.json
