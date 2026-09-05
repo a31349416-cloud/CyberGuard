@@ -1,9 +1,10 @@
 """
 Headers Scanner — перевірка security headers (OWASP A05:2021)
 """
+
 import time
+
 import requests
-from typing import List
 
 # Ініціалізуємо findings як dict для сумісності з risk_engine
 REQUIRED_HEADERS = {
@@ -79,112 +80,131 @@ def scan_headers(url: str, timeout: int = 8) -> dict:
     Сканує security headers. Повертає dict з findings.
     """
     start = time.time()
-    findings: List[dict] = []
+    findings: list[dict] = []
     error = None
 
     try:
-        headers = {
-            "User-Agent": "CyberGuard/1.0 Security Scanner (OWASP Audit)"
-        }
-        resp = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, verify=True)
+        headers = {"User-Agent": "CyberGuard/1.0 Security Scanner (OWASP Audit)"}
+        resp = requests.get(
+            url, headers=headers, timeout=timeout, allow_redirects=True, verify=True
+        )
         resp_headers = {k.lower(): v for k, v in resp.headers.items()}
 
         # Перевірка обов'язкових headers
         for hdr, meta in REQUIRED_HEADERS.items():
             if hdr.lower() not in resp_headers:
-                findings.append({
-                    "type": f"Missing {hdr}",
-                    "severity": meta["severity"],
-                    "score": meta["score"],
-                    "description": meta["description"],
-                    "fix": meta["fix"],
-                    "owasp_category": meta["owasp"],
-                    "evidence": f"Header '{hdr}' not found in response",
-                })
+                findings.append(
+                    {
+                        "type": f"Missing {hdr}",
+                        "severity": meta["severity"],
+                        "score": meta["score"],
+                        "description": meta["description"],
+                        "fix": meta["fix"],
+                        "owasp_category": meta["owasp"],
+                        "evidence": f"Header '{hdr}' not found in response",
+                    }
+                )
             else:
                 # Додаткові перевірки значень
                 val = resp_headers[hdr.lower()]
                 if hdr == "Strict-Transport-Security" and "max-age" not in val.lower():
-                    findings.append({
-                        "type": "Weak HSTS",
-                        "severity": "LOW",
-                        "score": 5,
-                        "description": "HSTS присутній але без max-age - неефективний",
-                        "fix": "Встановити HSTS з max-age >= 31536000",
-                        "owasp_category": "A05:2021",
-                        "evidence": f"HSTS value: {val}",
-                    })
-                if hdr == "X-Frame-Options" and val.lower() not in ("deny", "sameorigin"):
-                    findings.append({
-                        "type": "Weak X-Frame-Options",
-                        "severity": "LOW",
-                        "score": 5,
-                        "description": f"X-Frame-Options має неочікуване значення: {val}",
-                        "fix": "Встановити X-Frame-Options: DENY або SAMEORIGIN",
-                        "owasp_category": "A01:2021",
-                        "evidence": val,
-                    })
+                    findings.append(
+                        {
+                            "type": "Weak HSTS",
+                            "severity": "LOW",
+                            "score": 5,
+                            "description": "HSTS присутній але без max-age - неефективний",
+                            "fix": "Встановити HSTS з max-age >= 31536000",
+                            "owasp_category": "A05:2021",
+                            "evidence": f"HSTS value: {val}",
+                        }
+                    )
+                if hdr == "X-Frame-Options" and val.lower() not in (
+                    "deny",
+                    "sameorigin",
+                ):
+                    findings.append(
+                        {
+                            "type": "Weak X-Frame-Options",
+                            "severity": "LOW",
+                            "score": 5,
+                            "description": f"X-Frame-Options має неочікуване значення: {val}",
+                            "fix": "Встановити X-Frame-Options: DENY або SAMEORIGIN",
+                            "owasp_category": "A01:2021",
+                            "evidence": val,
+                        }
+                    )
 
         # Перевірка інформаційних витоків
         for hdr, meta in ADDITIONAL_CHECKS.items():
             val = resp.headers.get(hdr)
             if meta["check"](val):
-                findings.append({
-                    "type": meta["type"],
-                    "severity": meta["severity"],
-                    "score": meta["score"],
-                    "description": meta["description"],
-                    "fix": meta["fix"],
-                    "owasp_category": meta["owasp"],
-                    "evidence": f"{hdr}: {val}",
-                })
+                findings.append(
+                    {
+                        "type": meta["type"],
+                        "severity": meta["severity"],
+                        "score": meta["score"],
+                        "description": meta["description"],
+                        "fix": meta["fix"],
+                        "owasp_category": meta["owasp"],
+                        "evidence": f"{hdr}: {val}",
+                    }
+                )
 
         # Перевірка cookie flags
         cookies = resp.headers.get("Set-Cookie", "")
         if cookies:
             if "Secure" not in cookies:
-                findings.append({
-                    "type": "Cookie without Secure flag",
-                    "severity": "MEDIUM",
-                    "score": 10,
-                    "description": "Cookie без Secure flag може передаватись по HTTP",
-                    "fix": "Додати Secure та HttpOnly до всіх cookies",
-                    "owasp_category": "A05:2021",
-                    "evidence": cookies[:120],
-                })
+                findings.append(
+                    {
+                        "type": "Cookie without Secure flag",
+                        "severity": "MEDIUM",
+                        "score": 10,
+                        "description": "Cookie без Secure flag може передаватись по HTTP",
+                        "fix": "Додати Secure та HttpOnly до всіх cookies",
+                        "owasp_category": "A05:2021",
+                        "evidence": cookies[:120],
+                    }
+                )
             if "HttpOnly" not in cookies:
-                findings.append({
-                    "type": "Cookie without HttpOnly",
-                    "severity": "MEDIUM",
-                    "score": 10,
-                    "description": "Cookie без HttpOnly доступна з JavaScript - ризик XSS крадіжки",
-                    "fix": "Додати HttpOnly flag до cookies",
-                    "owasp_category": "A03:2021 - Injection",
-                    "evidence": cookies[:120],
-                })
+                findings.append(
+                    {
+                        "type": "Cookie without HttpOnly",
+                        "severity": "MEDIUM",
+                        "score": 10,
+                        "description": "Cookie без HttpOnly доступна з JavaScript - ризик XSS крадіжки",
+                        "fix": "Додати HttpOnly flag до cookies",
+                        "owasp_category": "A03:2021 - Injection",
+                        "evidence": cookies[:120],
+                    }
+                )
 
     except requests.exceptions.SSLError as e:
         error = f"SSL error: {str(e)[:200]}"
-        findings.append({
-            "type": "SSL/TLS Error",
-            "severity": "HIGH",
-            "score": 25,
-            "description": f"SSL помилка при запиті: {error}",
-            "fix": "Перевірити SSL сертифікат та налаштування TLS",
-            "owasp_category": "A05:2021",
-            "evidence": error,
-        })
+        findings.append(
+            {
+                "type": "SSL/TLS Error",
+                "severity": "HIGH",
+                "score": 25,
+                "description": f"SSL помилка при запиті: {error}",
+                "fix": "Перевірити SSL сертифікат та налаштування TLS",
+                "owasp_category": "A05:2021",
+                "evidence": error,
+            }
+        )
     except Exception as e:
         error = str(e)[:300]
-        findings.append({
-            "type": "Headers Scan Failed",
-            "severity": "LOW",
-            "score": 0,
-            "description": f"Не вдалося виконати перевірку заголовків: {error}",
-            "fix": "Перевірити доступність сайту",
-            "owasp_category": "N/A",
-            "evidence": error,
-        })
+        findings.append(
+            {
+                "type": "Headers Scan Failed",
+                "severity": "LOW",
+                "score": 0,
+                "description": f"Не вдалося виконати перевірку заголовків: {error}",
+                "fix": "Перевірити доступність сайту",
+                "owasp_category": "N/A",
+                "evidence": error,
+            }
+        )
 
     duration = int((time.time() - start) * 1000)
     return {

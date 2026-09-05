@@ -1,17 +1,17 @@
 """
 Генерація PDF звіту через fpdf2
 """
-from fpdf import FPDF
+
 from datetime import datetime
-from typing import List
-import os
 from pathlib import Path
+
+from fpdf import FPDF
 
 # Кольори
 COLORS = {
-    "LOW": (34, 197, 94),      # green
-    "MEDIUM": (234, 179, 8),   # yellow
-    "HIGH": (239, 68, 68),     # red
+    "LOW": (34, 197, 94),  # green
+    "MEDIUM": (234, 179, 8),  # yellow
+    "HIGH": (239, 68, 68),  # red
     "CRITICAL": (153, 27, 27),
     "bg": (248, 250, 252),
     "dark": (15, 23, 42),
@@ -35,7 +35,12 @@ class CyberGuardPDF(FPDF):
         self.set_y(-15)
         self.set_font("Helvetica", "I", 7)
         self.set_text_color(*COLORS["muted"])
-        self.cell(0, 10, f"CyberGuard Report  |  Page {self.page_no()}/{{nb}}  |  Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  |  Ethical Use Only", align="C")
+        self.cell(
+            0,
+            10,
+            f"CyberGuard Report  |  Page {self.page_no()}/{{nb}}  |  Generated {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}  |  Ethical Use Only",
+            align="C",
+        )
 
     def risk_badge(self, score: int, level: str):
         color = COLORS.get(level, COLORS["LOW"])
@@ -129,7 +134,7 @@ class CyberGuardPDF(FPDF):
         self.set_y(y_start + 30)
 
 
-def generate_pdf(scan_data: dict, output_path: str = None) -> str:
+def generate_pdf(scan_data: dict, output_path: str | None = None) -> str:
     """
     Генерує PDF звіт і повертає шлях до файлу.
     scan_data: dict з полями scan_id, url, risk_score, level, findings, created_at
@@ -138,7 +143,7 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     url = scan_data.get("url", "")
     score = scan_data.get("risk_score", 0)
     level = scan_data.get("level", "LOW")
-    findings: List[dict] = scan_data.get("findings", [])
+    findings: list[dict] = scan_data.get("findings", [])
     created_at = scan_data.get("created_at", datetime.utcnow().isoformat())
     # Якщо created_at вже datetime
     if hasattr(created_at, "isoformat"):
@@ -169,7 +174,12 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.cell(0, 5, f"Target URL:  {url}", align="C")
     pdf.ln(5)
     pdf.set_text_color(*COLORS["muted"])
-    pdf.cell(0, 4, f"Scan ID: {scan_id}   |   Date: {created_at[:19]}   |   Findings: {len(findings)}", align="C")
+    pdf.cell(
+        0,
+        4,
+        f"Scan ID: {scan_id}   |   Date: {created_at[:19]}   |   Findings: {len(findings)}",
+        align="C",
+    )
     pdf.ln(12)
 
     # Шкала ризику
@@ -188,7 +198,13 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.set_font("Helvetica", "B", 8)
     pdf.set_fill_color(*COLORS["dark"])
     pdf.set_text_color(255, 255, 255)
-    cols = ["LOW (5 pts)", "MEDIUM (15 pts)", "HIGH (25 pts)", "CRITICAL (40 pts)", "TOTAL"]
+    cols = [
+        "LOW (5 pts)",
+        "MEDIUM (15 pts)",
+        "HIGH (25 pts)",
+        "CRITICAL (40 pts)",
+        "TOTAL",
+    ]
     col_w = [36, 38, 38, 40, 38]
     for i, c in enumerate(cols):
         pdf.cell(col_w[i], 8, c, border=1, align="C", fill=True)
@@ -196,7 +212,13 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*COLORS["dark"])
     pdf.set_fill_color(255, 255, 255)
-    vals = [str(counts["LOW"]), str(counts["MEDIUM"]), str(counts["HIGH"]), str(counts["CRITICAL"]), str(len(findings))]
+    vals = [
+        str(counts["LOW"]),
+        str(counts["MEDIUM"]),
+        str(counts["HIGH"]),
+        str(counts["CRITICAL"]),
+        str(len(findings)),
+    ]
     for i, v in enumerate(vals):
         c = COLORS.get(cols[i].split()[0], COLORS["dark"])
         pdf.set_text_color(*c if i < 4 else COLORS["dark"])
@@ -222,7 +244,7 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
             if w > 12:
                 pdf.set_xy(x, pdf.get_y())
                 pdf.set_font("Helvetica", "B", 6)
-                pdf.set_text_color(255,255,255)
+                pdf.set_text_color(255, 255, 255)
                 pdf.cell(w, 6, str(cnt), align="C")
         x += w
     # рамка
@@ -232,7 +254,12 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.set_font("Helvetica", "", 6)
     pdf.set_text_color(*COLORS["muted"])
     pdf.set_x(x0)
-    pdf.cell(bar_w, 3, "  ".join([f"{s}: {counts[s]}" for s in ["CRITICAL","HIGH","MEDIUM","LOW"]]), align="C")
+    pdf.cell(
+        bar_w,
+        3,
+        "  ".join([f"{s}: {counts[s]}" for s in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]]),
+        align="C",
+    )
     pdf.ln(4)
 
     # Список вразливостей
@@ -273,7 +300,12 @@ def generate_pdf(scan_data: dict, output_path: str = None) -> str:
     pdf.ln(4)
     pdf.set_font("Helvetica", "I", 6)
     pdf.set_text_color(*COLORS["muted"])
-    pdf.multi_cell(0, 4, "Disclaimer: This report is for educational and authorized testing purposes only. Scan only sites you own or have permission to test. The authors are not responsible for misuse. Results are indicative and not a substitute for professional penetration testing.", align="C")
+    pdf.multi_cell(
+        0,
+        4,
+        "Disclaimer: This report is for educational and authorized testing purposes only. Scan only sites you own or have permission to test. The authors are not responsible for misuse. Results are indicative and not a substitute for professional penetration testing.",
+        align="C",
+    )
 
     # Збереження
     if output_path is None:

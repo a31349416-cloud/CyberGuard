@@ -1,11 +1,12 @@
 """
 Pydantic моделі для CyberGuard
 """
-from pydantic import BaseModel, HttpUrl, Field, field_validator
-from typing import List, Optional, Literal
+
+import re
 from datetime import datetime
 from enum import Enum
-import re
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class Severity(str, Enum):
@@ -29,7 +30,9 @@ class ScanStatus(str, Enum):
 
 
 class ScanRequest(BaseModel):
-    url: str = Field(..., description="URL для сканування", examples=["https://testphp.vulnweb.com"])
+    url: str = Field(
+        ..., description="URL для сканування", examples=["https://testphp.vulnweb.com"]
+    )
 
     @field_validator("url")
     @classmethod
@@ -60,28 +63,38 @@ class ScanRequest(BaseModel):
         ]
         for pat in blocked_patterns:
             if re.search(pat, v, re.IGNORECASE):
-                raise ValueError(f"Сканування приватних/localhost/metadata адрес заборонено: {v}")
+                raise ValueError(
+                    f"Сканування приватних/localhost/metadata адрес заборонено: {v}"
+                )
 
         # Парсинг URL для додаткових перевірок
-        from urllib.parse import urlparse
         import ipaddress
+        from urllib.parse import urlparse
+
         parsed = urlparse(v)
         host = parsed.hostname or ""
         # Якщо host — IP, перевіряємо ipaddress.is_private
         try:
             ip = ipaddress.ip_address(host)
-            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            if (
+                ip.is_private
+                or ip.is_loopback
+                or ip.is_link_local
+                or ip.is_multicast
+                or ip.is_reserved
+            ):
                 raise ValueError(f"Сканування приватних IP заборонено: {host}")
         except ValueError as e:
             if "заборонено" in str(e):
                 raise
-            pass  # не IP — ок
+            # не IP — ок
 
         if len(v) > 2048:
             raise ValueError("URL занадто довгий")
         # DNS rebinding: резолв хоста і перевірка IP на приватність
         try:
             import socket
+
             # Не фейлити валідацію якщо DNS недоступний — перевірка в сканерах пізніше
             infos = socket.getaddrinfo(host, None, family=socket.AF_UNSPEC)
             for fam, _, _, _, sockaddr in infos:
@@ -89,7 +102,9 @@ class ScanRequest(BaseModel):
                 try:
                     ip2 = ipaddress.ip_address(ip_str)
                     if ip2.is_private or ip2.is_loopback or ip2.is_link_local:
-                        raise ValueError(f"Хост {host} резолвиться в приватний IP {ip_str} — заблоковано")
+                        raise ValueError(
+                            f"Хост {host} резолвиться в приватний IP {ip_str} — заблоковано"
+                        )
                 except ValueError as e:
                     if "заблоковано" in str(e):
                         raise
@@ -106,15 +121,15 @@ class Finding(BaseModel):
     score: int = Field(..., ge=0, le=100)
     description: str = ""
     fix: str = Field(..., description="Рекомендація з виправлення")
-    owasp_category: Optional[str] = None
-    evidence: Optional[str] = None
+    owasp_category: str | None = None
+    evidence: str | None = None
 
 
 class ScannerResult(BaseModel):
     scanner: str
-    findings: List[Finding] = []
-    duration_ms: Optional[int] = None
-    error: Optional[str] = None
+    findings: list[Finding] = []
+    duration_ms: int | None = None
+    error: str | None = None
 
 
 class ScanResult(BaseModel):
@@ -123,11 +138,11 @@ class ScanResult(BaseModel):
     status: ScanStatus = ScanStatus.COMPLETED
     risk_score: int = Field(..., ge=0, le=100)
     level: RiskLevel
-    findings: List[Finding] = []
-    scanners: List[ScannerResult] = []
+    findings: list[Finding] = []
+    scanners: list[ScannerResult] = []
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    completed_at: Optional[datetime] = None
-    duration_ms: Optional[int] = None
+    completed_at: datetime | None = None
+    duration_ms: int | None = None
 
     @property
     def findings_by_severity(self) -> dict:
@@ -152,4 +167,4 @@ class ScanStatusResponse(BaseModel):
     status: ScanStatus
     url: str
     progress: int = Field(..., ge=0, le=100, description="Прогрес 0-100%")
-    message: Optional[str] = None
+    message: str | None = None

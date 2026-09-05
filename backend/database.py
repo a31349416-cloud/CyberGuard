@@ -1,11 +1,10 @@
 """
 SQLite база для зберігання історії сканувань
 """
-import sqlite3
+
 import json
-import os
+import sqlite3
 from datetime import datetime
-from typing import List, Optional
 from pathlib import Path
 
 DB_PATH = Path(__file__).parent / "scans.db"
@@ -34,7 +33,9 @@ def init_db():
             duration_ms INTEGER
         )
     """)
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_scans_created ON scans(created_at DESC)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_scans_created ON scans(created_at DESC)"
+    )
     conn.commit()
     conn.close()
 
@@ -50,9 +51,15 @@ def save_scan(scan_id: str, url: str, status: str = "pending"):
     conn.close()
 
 
-def update_scan(scan_id: str, status: str = None, risk_score: int = None,
-                level: str = None, findings: list = None, scanners: list = None,
-                duration_ms: int = None):
+def update_scan(
+    scan_id: str,
+    status: str | None = None,
+    risk_score: int | None = None,
+    level: str | None = None,
+    findings: list | None = None,
+    scanners: list | None = None,
+    duration_ms: int | None = None,
+):
     conn = get_connection()
     cur = conn.cursor()
     fields = []
@@ -90,7 +97,7 @@ def update_scan(scan_id: str, status: str = None, risk_score: int = None,
     conn.close()
 
 
-def get_scan(scan_id: str) -> Optional[dict]:
+def get_scan(scan_id: str) -> dict | None:
     conn = get_connection()
     cur = conn.cursor()
     cur.execute("SELECT * FROM scans WHERE scan_id = ?", (scan_id,))
@@ -108,7 +115,9 @@ def get_scan(scan_id: str) -> Optional[dict]:
     return d
 
 
-def get_history(limit: int = 50, offset: int = 0, q: str = None, level: str = None) -> List[dict]:
+def get_history(
+    limit: int = 50, offset: int = 0, q: str | None = None, level: str | None = None
+) -> list[dict]:
     conn = get_connection()
     cur = conn.cursor()
     # Фільтри q (пошук по url) та level
@@ -130,19 +139,23 @@ def get_history(limit: int = 50, offset: int = 0, q: str = None, level: str = No
     for row in rows:
         d = dict(row)
         try:
-            findings = json.loads(d["findings"]) if isinstance(d["findings"], str) else []
+            findings = (
+                json.loads(d["findings"]) if isinstance(d["findings"], str) else []
+            )
         except:
             findings = []
-        result.append({
-            "scan_id": d["scan_id"],
-            "url": d["url"],
-            "status": d["status"],
-            "risk_score": d["risk_score"],
-            "level": d["level"],
-            "findings_count": len(findings),
-            "created_at": d["created_at"],
-            "completed_at": d["completed_at"],
-        })
+        result.append(
+            {
+                "scan_id": d["scan_id"],
+                "url": d["url"],
+                "status": d["status"],
+                "risk_score": d["risk_score"],
+                "level": d["level"],
+                "findings_count": len(findings),
+                "created_at": d["created_at"],
+                "completed_at": d["completed_at"],
+            }
+        )
     return result
 
 

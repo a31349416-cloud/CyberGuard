@@ -2,10 +2,12 @@
 SQLi Scanner — пошук SQL Injection через аналіз помилок БД
 OWASP A03:2021 - Injection
 """
-import time
+
 import re
+import time
+from urllib.parse import parse_qs, urlencode, urljoin, urlparse
+
 import requests
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode, quote
 from bs4 import BeautifulSoup
 
 # SQL помилки — індикатори вразливості
@@ -37,10 +39,10 @@ SQL_ERRORS = [
 
 SQLI_PAYLOADS = [
     "'",
-    "\"",
+    '"',
     "' OR '1'='1",
     "' OR 1=1--",
-    "\" OR \"1\"=\"1",
+    '" OR "1"="1',
     "' UNION SELECT 1,2,3--",
     "1' AND 1=1--",
 ]
@@ -98,15 +100,17 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
                         r = session.get(test_url, timeout=5, verify=True)
                         has_error, db_type = check_sqli_error(r.text)
                         if has_error:
-                            findings.append({
-                                "type": f"Potential SQL Injection in parameter '{param}' ({db_type})",
-                                "severity": "HIGH",
-                                "score": 25,
-                                "description": f"Параметр '{param}' можливо вразливий до SQL Injection - виявлено помилку БД {db_type} при payload '{payload}'",
-                                "fix": "Використати parameterized queries / prepared statements, ORM, екранувати вхідні дані. Ніколи не конкатенувати SQL з user input!",
-                                "owasp_category": "A03:2021 - Injection (SQLi)",
-                                "evidence": f"Payload: '{payload}' triggered {db_type} error in param '{param}'",
-                            })
+                            findings.append(
+                                {
+                                    "type": f"Potential SQL Injection in parameter '{param}' ({db_type})",
+                                    "severity": "HIGH",
+                                    "score": 25,
+                                    "description": f"Параметр '{param}' можливо вразливий до SQL Injection - виявлено помилку БД {db_type} при payload '{payload}'",
+                                    "fix": "Використати parameterized queries / prepared statements, ORM, екранувати вхідні дані. Ніколи не конкатенувати SQL з user input!",
+                                    "owasp_category": "A03:2021 - Injection (SQLi)",
+                                    "evidence": f"Payload: '{payload}' triggered {db_type} error in param '{param}'",
+                                }
+                            )
                             break
                         # Перевірка на різницю у відповіді (boolean-based)
                         # Якщо оригінал і payload дають різний контент — потенційно вразливо
@@ -123,7 +127,12 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
                 form_url = urljoin(url, action) if action else url
 
                 inputs = form.find_all(["input", "textarea"])
-                text_inputs = [inp for inp in inputs if inp.get("type", "text") not in ("submit", "button", "checkbox", "radio", "file")]
+                text_inputs = [
+                    inp
+                    for inp in inputs
+                    if inp.get("type", "text")
+                    not in ("submit", "button", "checkbox", "radio", "file")
+                ]
                 # Якщо немає текстових — пробуємо всі з name
                 if not text_inputs:
                     text_inputs = [inp for inp in inputs if inp.get("name")]
@@ -158,23 +167,29 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
 
                         try:
                             if method == "post":
-                                r = session.post(form_url, data=test_data, timeout=5, verify=True)
+                                r = session.post(
+                                    form_url, data=test_data, timeout=5, verify=True
+                                )
                             else:
                                 qs = urlencode(test_data)
                                 sep = "&" if "?" in form_url else "?"
-                                r = session.get(form_url + sep + qs, timeout=5, verify=True)
+                                r = session.get(
+                                    form_url + sep + qs, timeout=5, verify=True
+                                )
 
                             has_error, db_type = check_sqli_error(r.text)
                             if has_error:
-                                findings.append({
-                                    "type": f"Potential SQL Injection in form field '{name}' ({db_type})",
-                                    "severity": "HIGH",
-                                    "score": 25,
-                                    "description": f"Поле форми '{name}' можливо вразливе до SQL Injection ({db_type})",
-                                    "fix": "Використати prepared statements: cursor.execute('SELECT * FROM users WHERE id=%s', (user_id,))",
-                                    "owasp_category": "A03:2021 - Injection (SQLi)",
-                                    "evidence": f"Form {form_url}, field '{name}' with payload '{payload}' triggered {db_type} error",
-                                })
+                                findings.append(
+                                    {
+                                        "type": f"Potential SQL Injection in form field '{name}' ({db_type})",
+                                        "severity": "HIGH",
+                                        "score": 25,
+                                        "description": f"Поле форми '{name}' можливо вразливе до SQL Injection ({db_type})",
+                                        "fix": "Використати prepared statements: cursor.execute('SELECT * FROM users WHERE id=%s', (user_id,))",
+                                        "owasp_category": "A03:2021 - Injection (SQLi)",
+                                        "evidence": f"Form {form_url}, field '{name}' with payload '{payload}' triggered {db_type} error",
+                                    }
+                                )
                                 vulnerable = True
                                 break
                         except Exception:
@@ -188,47 +203,66 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
         if not findings:
             for payload in TIME_PAYLOADS[:1]:
                 try:
-                    base_params = {k: v[0] for k, v in query_params.items()} if query_params else {"id": "1"}
+                    base_params = (
+                        {k: v[0] for k, v in query_params.items()}
+                        if query_params
+                        else {"id": "1"}
+                    )
                     test_params = base_params.copy()
                     # додаємо payload до першого параметра
                     first_key = next(iter(test_params), "id")
                     test_params[first_key] = str(test_params[first_key]) + payload
                     qs = urlencode(test_params)
-                    test_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{qs}" if query_params else f"{url.rstrip('/')}?{qs}"
+                    test_url = (
+                        f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{qs}"
+                        if query_params
+                        else f"{url.rstrip('/')}?{qs}"
+                    )
                     import time as _t
+
                     t0 = _t.time()
                     r = session.get(test_url, timeout=7, verify=True)
                     dt = _t.time() - t0
                     if dt > 2.5 and r.status_code < 500:
-                        findings.append({
-                            "type": f"Potential Blind SQLi (time-based) in '{first_key}'",
-                            "severity": "HIGH",
-                            "score": 25,
-                            "description": f"Параметр затримав відповідь на {dt:.1f}s з payload {payload} — можливий blind SQLi",
-                            "fix": "Parameterized queries, WAF, обмежити час виконання запитів",
-                            "owasp_category": "A03:2021 - Injection (SQLi)",
-                            "evidence": f"Delay {dt:.1f}s for payload {payload}",
-                        })
+                        findings.append(
+                            {
+                                "type": f"Potential Blind SQLi (time-based) in '{first_key}'",
+                                "severity": "HIGH",
+                                "score": 25,
+                                "description": f"Параметр затримав відповідь на {dt:.1f}s з payload {payload} — можливий blind SQLi",
+                                "fix": "Parameterized queries, WAF, обмежити час виконання запитів",
+                                "owasp_category": "A03:2021 - Injection (SQLi)",
+                                "evidence": f"Delay {dt:.1f}s for payload {payload}",
+                            }
+                        )
                         break
                 except Exception:
                     continue
 
         # Крок 4: Перевірка на information disclosure через SQL коментарі / stack trace
-        error_indicators = ["stack trace", "exception", "error in your SQL syntax", "mysql_fetch", "pg_query"]
+        error_indicators = [
+            "stack trace",
+            "exception",
+            "error in your SQL syntax",
+            "mysql_fetch",
+            "pg_query",
+        ]
         text_lower = resp.text.lower()
         for indicator in error_indicators:
             if indicator in text_lower:
                 # Перевіряємо чи це не false positive (дефолтна сторінка)
                 if not findings:  # Тільки якщо ще немає HIGH findings
-                    findings.append({
-                        "type": "Information Disclosure: SQL error in page",
-                        "severity": "MEDIUM",
-                        "score": 10,
-                        "description": f"Сторінка містить технічну інформацію про БД ('{indicator}') - може допомогти зловмиснику",
-                        "fix": "Вимкнути debug mode, налаштувати custom error pages, не показувати stack trace користувачу",
-                        "owasp_category": "A01:2021 - Broken Access Control",
-                        "evidence": f"Found '{indicator}' in page content",
-                    })
+                    findings.append(
+                        {
+                            "type": "Information Disclosure: SQL error in page",
+                            "severity": "MEDIUM",
+                            "score": 10,
+                            "description": f"Сторінка містить технічну інформацію про БД ('{indicator}') - може допомогти зловмиснику",
+                            "fix": "Вимкнути debug mode, налаштувати custom error pages, не показувати stack trace користувачу",
+                            "owasp_category": "A01:2021 - Broken Access Control",
+                            "evidence": f"Found '{indicator}' in page content",
+                        }
+                    )
                 break
 
         # Якщо немає ні параметрів ні форм — низький ризик SQLi
@@ -243,26 +277,30 @@ def scan_sqli(url: str, timeout: int = 8) -> dict:
 
     except requests.exceptions.RequestException as e:
         error = str(e)[:300]
-        findings.append({
-            "type": "SQLi Scan Failed",
-            "severity": "LOW",
-            "score": 0,
-            "description": f"Не вдалося виконати SQLi сканування: {error[:100]}",
-            "fix": "Перевірити доступність сайту",
-            "owasp_category": "N/A",
-            "evidence": error[:200],
-        })
+        findings.append(
+            {
+                "type": "SQLi Scan Failed",
+                "severity": "LOW",
+                "score": 0,
+                "description": f"Не вдалося виконати SQLi сканування: {error[:100]}",
+                "fix": "Перевірити доступність сайту",
+                "owasp_category": "N/A",
+                "evidence": error[:200],
+            }
+        )
     except Exception as e:
         error = str(e)[:300]
-        findings.append({
-            "type": "SQLi Scan Error",
-            "severity": "LOW",
-            "score": 0,
-            "description": f"Помилка SQLi сканера: {error[:100]}",
-            "fix": "Перевірити логи",
-            "owasp_category": "N/A",
-            "evidence": error[:200],
-        })
+        findings.append(
+            {
+                "type": "SQLi Scan Error",
+                "severity": "LOW",
+                "score": 0,
+                "description": f"Помилка SQLi сканера: {error[:100]}",
+                "fix": "Перевірити логи",
+                "owasp_category": "N/A",
+                "evidence": error[:200],
+            }
+        )
 
     duration = int((time.time() - start) * 1000)
     return {

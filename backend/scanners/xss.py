@@ -2,15 +2,16 @@
 XSS Scanner — пошук Reflected XSS через аналіз форм та payload injection
 OWASP A03:2021 - Injection
 """
+
 import time
-import re
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
+
 import requests
-from urllib.parse import urljoin, urlparse, parse_qs, urlencode, quote
 from bs4 import BeautifulSoup
 
 XSS_PAYLOADS = [
     "<script>alert('XSS')</script>",
-    "\"><svg onload=alert(1)>",
+    '"><svg onload=alert(1)>',
     "'\"><img src=x onerror=alert(1)>",
     "javascript:alert(1)",
     "<iframe src=javascript:alert(1)>",
@@ -60,15 +61,17 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
 
         # X-XSS-Protection
         if "x-xss-protection" not in headers_lower:
-            findings.append({
-                "type": "Missing X-XSS-Protection header",
-                "severity": "LOW",
-                "score": 5,
-                "description": "Відсутній X-XSS-Protection header (додатковий захист в старих браузерах)",
-                "fix": "Додати header: X-XSS-Protection: 1; mode=block (або покладатись на CSP)",
-                "owasp_category": "A03:2021 - Injection",
-                "evidence": "Header not found",
-            })
+            findings.append(
+                {
+                    "type": "Missing X-XSS-Protection header",
+                    "severity": "LOW",
+                    "score": 5,
+                    "description": "Відсутній X-XSS-Protection header (додатковий захист в старих браузерах)",
+                    "fix": "Додати header: X-XSS-Protection: 1; mode=block (або покладатись на CSP)",
+                    "owasp_category": "A03:2021 - Injection",
+                    "evidence": "Header not found",
+                }
+            )
 
         # Перевірка чи є CSP з захистом від XSS
         csp = headers_lower.get("content-security-policy", "")
@@ -76,15 +79,17 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
             # Вже покрито в headers scanner, але XSS контекст
             pass
         elif "unsafe-inline" in csp:
-            findings.append({
-                "type": "Weak CSP allows unsafe-inline",
-                "severity": "MEDIUM",
-                "score": 10,
-                "description": "CSP містить 'unsafe-inline' - послаблює захист від XSS",
-                "fix": "Видалити 'unsafe-inline', використати nonce або hash для inline скриптів",
-                "owasp_category": "A03:2021 - Injection",
-                "evidence": f"CSP: {csp[:150]}",
-            })
+            findings.append(
+                {
+                    "type": "Weak CSP allows unsafe-inline",
+                    "severity": "MEDIUM",
+                    "score": 10,
+                    "description": "CSP містить 'unsafe-inline' - послаблює захист від XSS",
+                    "fix": "Видалити 'unsafe-inline', використати nonce або hash для inline скриптів",
+                    "owasp_category": "A03:2021 - Injection",
+                    "evidence": f"CSP: {csp[:150]}",
+                }
+            )
 
         # Крок 3: Шукаємо відображення user input без екранування (reflected)
         # Перевірка query параметрів у URL — чи відображаються на сторінці без екранування
@@ -95,7 +100,9 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
         if query_params:
             for param, values in list(query_params.items())[:3]:  # max 3 параметри
                 test_payload = XSS_PAYLOADS[0]
-                test_url = url.replace(f"{param}={values[0]}", f"{param}={quote(test_payload)}")
+                test_url = url.replace(
+                    f"{param}={values[0]}", f"{param}={quote(test_payload)}"
+                )
                 try:
                     r = session.get(test_url, timeout=5, verify=True)
                     # Перевіряємо чи payload відобразився без екранування
@@ -103,15 +110,17 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
                         # Перевіряємо чи не екрановано (< -> &lt;)
                         if "&lt;script&gt;" not in r.text or test_payload in r.text:
                             # Двошарова перевірка: payload є в raw HTML
-                            findings.append({
-                                "type": f"Potential Reflected XSS in parameter '{param}'",
-                                "severity": "HIGH",
-                                "score": 25,
-                                "description": f"Параметр '{param}' відображається без екранування - можливий Reflected XSS",
-                                "fix": "Екранувати вивід: html.escape(user_input), використати templating з auto-escape",
-                                "owasp_category": "A03:2021 - Injection (XSS)",
-                                "evidence": f"Payload '{test_payload}' reflected in response for param '{param}'",
-                            })
+                            findings.append(
+                                {
+                                    "type": f"Potential Reflected XSS in parameter '{param}'",
+                                    "severity": "HIGH",
+                                    "score": 25,
+                                    "description": f"Параметр '{param}' відображається без екранування - можливий Reflected XSS",
+                                    "fix": "Екранувати вивід: html.escape(user_input), використати templating з auto-escape",
+                                    "owasp_category": "A03:2021 - Injection (XSS)",
+                                    "evidence": f"Payload '{test_payload}' reflected in response for param '{param}'",
+                                }
+                            )
                             break
                 except Exception:
                     continue
@@ -126,7 +135,12 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
                 form_url = urljoin(url, action) if action else url
 
                 inputs = form.find_all(["input", "textarea", "select"])
-                text_inputs = [inp for inp in inputs if inp.get("type", "text") not in ("submit", "button", "hidden", "checkbox", "radio", "file")]
+                text_inputs = [
+                    inp
+                    for inp in inputs
+                    if inp.get("type", "text")
+                    not in ("submit", "button", "hidden", "checkbox", "radio", "file")
+                ]
                 if not text_inputs:
                     continue
 
@@ -157,16 +171,24 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
                     for marker in XSS_MARKERS:
                         if marker.lower() in r.text.lower():
                             # Перевіряємо чи це не екранована версія
-                            if "&lt;" not in r.text[r.text.lower().find(marker.lower())-20:r.text.lower().find(marker.lower())+50]:
-                                findings.append({
-                                    "type": "Potential Stored/Reflected XSS in form",
-                                    "severity": "HIGH",
-                                    "score": 25,
-                                    "description": f"Форма {form_url} можливо вразлива до XSS - payload відобразився без екранування",
-                                    "fix": "Екранувати всі user inputs перед виводом, використати CSP, валідувати вхідні дані",
-                                    "owasp_category": "A03:2021 - Injection (XSS)",
-                                    "evidence": f"Form action: {form_url}, payload marker '{marker}' found in response",
-                                })
+                            if (
+                                "&lt;"
+                                not in r.text[
+                                    r.text.lower().find(marker.lower())
+                                    - 20 : r.text.lower().find(marker.lower()) + 50
+                                ]
+                            ):
+                                findings.append(
+                                    {
+                                        "type": "Potential Stored/Reflected XSS in form",
+                                        "severity": "HIGH",
+                                        "score": 25,
+                                        "description": f"Форма {form_url} можливо вразлива до XSS - payload відобразився без екранування",
+                                        "fix": "Екранувати всі user inputs перед виводом, використати CSP, валідувати вхідні дані",
+                                        "owasp_category": "A03:2021 - Injection (XSS)",
+                                        "evidence": f"Form action: {form_url}, payload marker '{marker}' found in response",
+                                    }
+                                )
                                 break
                     break  # Тестуємо тільки одну форму для швидкості
                 except Exception:
@@ -174,15 +196,17 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
 
             # Якщо форм багато — додаємо інфо
             if len(forms) > 5:
-                findings.append({
-                    "type": f"Many forms detected ({len(forms)})",
-                    "severity": "LOW",
-                    "score": 0,
-                    "description": f"Сторінка містить {len(forms)} форм - збільшена поверхня для XSS атак",
-                    "fix": "Перевірити всі форми на валідацію та екранування вводу",
-                    "owasp_category": "A03:2021",
-                    "evidence": f"{len(forms)} forms found",
-                })
+                findings.append(
+                    {
+                        "type": f"Many forms detected ({len(forms)})",
+                        "severity": "LOW",
+                        "score": 0,
+                        "description": f"Сторінка містить {len(forms)} форм - збільшена поверхня для XSS атак",
+                        "fix": "Перевірити всі форми на валідацію та екранування вводу",
+                        "owasp_category": "A03:2021",
+                        "evidence": f"{len(forms)} forms found",
+                    }
+                )
         else:
             # Немає форм — перевіряємо чи є query params для reflected XSS
             if not query_params:
@@ -190,40 +214,50 @@ def scan_xss(url: str, timeout: int = 8) -> dict:
                 pass
 
         # Крок 5: Перевірка на DOM-XSS індикатори (inline event handlers)
-        inline_handlers = soup.find_all(attrs={"onload": True}) + soup.find_all(attrs={"onerror": True}) + soup.find_all(attrs={"onclick": True})
+        inline_handlers = (
+            soup.find_all(attrs={"onload": True})
+            + soup.find_all(attrs={"onerror": True})
+            + soup.find_all(attrs={"onclick": True})
+        )
         if len(inline_handlers) > 3:
-            findings.append({
-                "type": "Inline event handlers detected",
-                "severity": "LOW",
-                "score": 5,
-                "description": f"Знайдено {len(inline_handlers)} inline event handlers (onclick, onload) - ускладнює CSP та може вказувати на XSS-unsafe код",
-                "fix": "Винести JS в окремі файли, використати addEventListener, налаштувати CSP без unsafe-inline",
-                "owasp_category": "A03:2021",
-                "evidence": f"{len(inline_handlers)} inline handlers found",
-            })
+            findings.append(
+                {
+                    "type": "Inline event handlers detected",
+                    "severity": "LOW",
+                    "score": 5,
+                    "description": f"Знайдено {len(inline_handlers)} inline event handlers (onclick, onload) - ускладнює CSP та може вказувати на XSS-unsafe код",
+                    "fix": "Винести JS в окремі файли, використати addEventListener, налаштувати CSP без unsafe-inline",
+                    "owasp_category": "A03:2021",
+                    "evidence": f"{len(inline_handlers)} inline handlers found",
+                }
+            )
 
     except requests.exceptions.RequestException as e:
         error = str(e)[:300]
-        findings.append({
-            "type": "XSS Scan Failed",
-            "severity": "LOW",
-            "score": 0,
-            "description": f"Не вдалося виконати XSS сканування: {error[:100]}",
-            "fix": "Перевірити доступність сайту",
-            "owasp_category": "N/A",
-            "evidence": error[:200],
-        })
+        findings.append(
+            {
+                "type": "XSS Scan Failed",
+                "severity": "LOW",
+                "score": 0,
+                "description": f"Не вдалося виконати XSS сканування: {error[:100]}",
+                "fix": "Перевірити доступність сайту",
+                "owasp_category": "N/A",
+                "evidence": error[:200],
+            }
+        )
     except Exception as e:
         error = str(e)[:300]
-        findings.append({
-            "type": "XSS Scan Error",
-            "severity": "LOW",
-            "score": 0,
-            "description": f"Помилка XSS сканера: {error[:100]}",
-            "fix": "Перевірити логи",
-            "owasp_category": "N/A",
-            "evidence": error[:200],
-        })
+        findings.append(
+            {
+                "type": "XSS Scan Error",
+                "severity": "LOW",
+                "score": 0,
+                "description": f"Помилка XSS сканера: {error[:100]}",
+                "fix": "Перевірити логи",
+                "owasp_category": "N/A",
+                "evidence": error[:200],
+            }
+        )
 
     duration = int((time.time() - start) * 1000)
     return {
