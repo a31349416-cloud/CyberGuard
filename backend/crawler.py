@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import time
 
-def crawl_same_origin(start_url: str, max_pages: int = 4, timeout: int = 5) -> list[str]:
+def crawl_same_origin(start_url: str, max_pages: int = 20, timeout: int = 5) -> list[str]:
     if not start_url.startswith("http"):
         start_url = "https://" + start_url
     parsed = urlparse(start_url)
@@ -16,7 +16,7 @@ def crawl_same_origin(start_url: str, max_pages: int = 4, timeout: int = 5) -> l
     to_visit = [start_url]
     result = []
     session = requests.Session()
-    session.headers.update({"User-Agent": "CyberGuard/1.0 Crawler"})
+    session.headers.update({"User-Agent": "CyberGuard/1.0 Crawler v3 (20 pages)"})
     while to_visit and len(result) < max_pages:
         url = to_visit.pop(0)
         if url in visited:

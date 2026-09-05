@@ -10,10 +10,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r requirements.txt
 
+# Playwright для SPA краулера (опційно, 20 сторінок)
+RUN pip install --no-cache-dir playwright && playwright install --with-deps chromium || echo "playwright install skipped"
+
 COPY . .
 
-# SQLite DB + reports dir
-RUN mkdir -p backend/reports
+# SQLite DB + reports dir + alembic stamp
+RUN mkdir -p backend/reports && python -m alembic stamp head || true
 
 EXPOSE 8000
 

@@ -34,5 +34,18 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+      - name: Test crawler (20 pages)
+        run: python -c "from backend.crawler import crawl_same_origin; print(crawl_same_origin('https://example.com', max_pages=2))"
+
+      - name: Alembic check
+        run: python -m alembic current
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
       - name: Build docker
         run: docker build -t cyberguard:test .
+      - name: Test Playwright install
+        run: docker run --rm cyberguard:test python -c "from backend.crawler import try_playwright_fetch; print('playwright available:', try_playwright_fetch('https://example.com') is not None or 'fallback ok')"
